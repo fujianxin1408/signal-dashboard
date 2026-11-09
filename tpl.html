@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>自选信号</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;background:#f5f6f8;color:#1a1a1a;padding:16px;line-height:1.5}
+.wrap{max-width:1180px;margin:0 auto}
+.head{background:#fff;border-radius:12px;padding:16px 18px;margin-bottom:12px;box-shadow:0 1px 3px rgba(0,0,0,.06)}
+h1{font-size:19px;font-weight:600;margin-bottom:8px}
+.meta{font-size:13px;color:#666;display:flex;flex-wrap:wrap;gap:12px;align-items:center}
+.badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:12px;font-weight:500}
+.bull{background:#fde8e8;color:#c0392b}
+.bear{background:#e8f5e9;color:#2e7d32}
+.tabs{display:flex;gap:8px;margin:12px 0}
+.tab{padding:6px 14px;border-radius:6px;background:#fff;border:1px solid #e0e0e0;cursor:pointer;font-size:13px;color:#666}
+.tab.on{background:#1a1a1a;color:#fff;border-color:#1a1a1a}
+.stats{display:flex;gap:16px;font-size:13px;color:#666;margin-bottom:12px;padding:0 4px}
+.stats b{font-size:15px}
+.card{background:#fff;border-radius:10px;margin-bottom:8px;box-shadow:0 1px 2px rgba(0,0,0,.05);overflow:hidden}
+.row{display:grid;grid-template-columns:1.5fr 0.8fr 0.7fr 0.7fr 0.8fr 0.8fr 0.7fr;gap:8px;padding:12px 14px;align-items:center;font-size:13px;border-bottom:1px solid #f0f0f0}
+.row:last-child{border-bottom:none}
+.row.hd{background:#fafafa;color:#888;font-size:12px;font-weight:500;padding:8px 14px}
+.name{font-weight:500;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.code{font-size:11px;color:#999;font-weight:400}
+.px{font-variant-numeric:tabular-nums;font-weight:500}
+.tag{display:inline-block;padding:1px 6px;border-radius:3px;font-size:11px;font-weight:500}
+.t-buy{background:#fde8e8;color:#c0392b}
+.t-sell{background:#e8f5e9;color:#2e7d32}
+.t-wait{background:#f0f0f0;color:#888}
+.num{font-variant-numeric:tabular-nums;color:#555}
+.rule{font-size:11px;color:#999;grid-column:1/-1;margin-top:-4px;padding-bottom:2px}
+.up{color:#c0392b}.down{color:#2e7d32}
+@media(max-width:720px){
+ .row{grid-template-columns:1.6fr 0.8fr 0.7fr 0.9fr;font-size:12px;padding:10px 12px}
+ .row.hd{display:none}
+ .hide-m{display:none}
+ .rule{grid-column:1/-1}
+}
+.foot{text-align:center;font-size:11px;color:#aaa;padding:20px 0}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="head">
+    <h1>自选信号</h1>
+    <div class="meta">
+      <span id="date">—</span>
+      <span id="idx">—</span>
+      <span id="upd" style="color:#aaa"></span>
+    </div>
+    <div class="tabs" id="tabs"></div>
+  </div>
+  <div class="stats" id="stats"></div>
+  <div id="list"></div>
+  <!--PAGE_JS-->
+  <div class="foot">信号为收盘价计算的技术指标触发，仅供参考，不构成投资建议</div>
+</div>
+</body>
+</html>
