@@ -14,8 +14,9 @@ h1{font-size:19px;font-weight:600;margin-bottom:8px}
 .badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:12px;font-weight:500}
 .bull{background:#fde8e8;color:#c0392b}
 .bear{background:#e8f5e9;color:#2e7d32}
-.tabs{display:flex;gap:8px;margin:12px 0}
-.tab{padding:6px 14px;border-radius:6px;background:#fff;border:1px solid #e0e0e0;cursor:pointer;font-size:13px;color:#666}
+.tabs{display:flex;gap:6px;margin:12px 0;overflow-x:auto;overflow-y:hidden;padding-bottom:2px;scrollbar-width:none}
+.tabs::-webkit-scrollbar{display:none}
+.tab{padding:6px 12px;border-radius:6px;background:#fff;border:1px solid #e0e0e0;cursor:pointer;font-size:12.5px;color:#666;white-space:nowrap;flex:0 0 auto;font-variant-numeric:tabular-nums}
 .tab.on{background:#1a1a1a;color:#fff;border-color:#1a1a1a}
 .stats{display:flex;gap:16px;font-size:13px;color:#666;margin-bottom:12px;padding:0 4px}
 .stats b{font-size:15px}
