@@ -1,0 +1,60 @@
+name: 盘中信号更新
+
+on:
+  schedule:
+    # UTC 01:00-07:30 对应北京时间 09:00-15:30
+    # 每 30 分钟一档，覆盖 A 股全天交易时段
+    - cron: "0,30 1-7 * * 1-5"
+  workflow_dispatch:
+    inputs:
+      slot:
+        description: "手动档位 HHMM，留空则自动判定"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+concurrency:
+  group: signal-update
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: 安装依赖
+        run: |
+          python -m pip install --upgrade pip
+          pip install numpy akshare
+
+      - name: 抓取数据
+        env:
+          MANUAL_SLOT: ${{ github.event.inputs.slot }}
+        run: python ci/update_ci.py
+
+      - name: 生成页面
+        run: python build_site.py
+
+      - name: 提交并推送
+        run: |
+          git config user.name "signal-bot"
+          git config user.email "signal-bot@users.noreply.github.com"
+          git add data.json index.html
+          if git diff --staged --quiet; then
+            echo "无变更"
+          else
+            git commit -m "data $(TZ=Asia/Shanghai date '+%Y-%m-%d %H:%M')"
+            git push
+          fi
