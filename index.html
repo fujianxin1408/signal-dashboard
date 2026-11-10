@@ -79,12 +79,14 @@ function render(){
     (m.bull ? '多头' : '空头') + '</span>';
   document.getElementById('upd').textContent = '更新 ' + (D.updated || '');
 
-  const keys = Object.keys(D.slots);
+  const keys = Object.keys(D.slots)
+    .sort((a, b) => String(D.slots[a].ts).localeCompare(String(D.slots[b].ts)));
+  if(!CUR || !D.slots[CUR]) CUR = keys[keys.length - 1];
   const tabs = document.getElementById('tabs');
   tabs.innerHTML = keys.map(k => {
     const s = D.slots[k];
     return '<div class="tab' + (k === CUR ? ' on' : '') + '" data-k="' + k + '">' +
-      s.label + ' ' + s.ts + '</div>';
+      s.ts + (s.final ? ' 收盘' : '') + '</div>';
   }).join('');
   tabs.querySelectorAll('.tab').forEach(el => {
     el.onclick = () => { CUR = el.dataset.k; render(); };
