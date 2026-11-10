@@ -184,27 +184,31 @@ def hit(conds, rsi, bias6):
 
 # ---------------- 主流程 ----------------
 
+SLOT_LABEL = {
+    "live": "实时刷新",
+    "1451": "14:51 盘中",
+    "1505": "15:05 收盘",
+}
+
+
 def slot_of(now):
-    """北京时间 → 档位键"""
+    """档位只有三种：live（手动触发）/ 1451 / 1505（定时触发）"""
     manual = os.environ.get("MANUAL_SLOT", "").strip()
-    if manual and len(manual) == 4 and manual.isdigit():
+    if manual in SLOT_LABEL:
         return manual
     hm = now.hour * 60 + now.minute
-    if hm >= 15 * 60 + 10:
-        return "1510"
-    if hm < 9 * 60 + 30:
-        return "0930"
-    if 11 * 60 + 30 <= hm < 13 * 60:
-        return "1130"
-    half = (hm // 30) * 30
-    return "%02d%02d" % (half // 60, half % 60)
+    if hm >= 15 * 60 + 5:
+        return "1505"
+    if hm >= 14 * 60 + 51:
+        return "1451"
+    return "live"
 
 
 def main():
     now = dt.datetime.utcnow() + dt.timedelta(hours=8)   # 北京时间
     today = now.strftime("%Y-%m-%d")
     slot = slot_of(now)
-    final = slot == "1510"
+    final = slot == "1505"
     log("北京时间 %s  档位 %s" % (now.strftime("%Y-%m-%d %H:%M"), slot))
 
     # 大盘
@@ -278,9 +282,11 @@ def main():
 
     data["date"] = today
     data["market"] = {"idx": round(idx_px, 1), "ma60": round(ma60, 1), "bull": bool(bull)}
-    data.setdefault("slots", {})[slot] = {
+    _slots = {k: v for k, v in data.get("slots", {}).items() if k in SLOT_LABEL}
+    data["slots"] = _slots
+    data["slots"][slot] = {
         "ts": now.strftime("%H:%M"),
-        "label": "收盘确认" if final else "盘中 %s:%s" % (slot[:2], slot[2:]),
+        "label": SLOT_LABEL[slot],
         "final": final, "counts": counts, "rows": rows,
     }
     data["updated"] = now.strftime("%Y-%m-%d %H:%M")

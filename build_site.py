@@ -16,9 +16,10 @@ def main():
     body = js.replace("__SNAPSHOT__", snap)
     html = tpl.replace("<!--PAGE_JS-->", "<script>\n" + body + "\n</script>")
     open(OUT, "w", encoding="utf-8").write(html)
-    print("生成 index.html %d 字节，标的 %d 只" %
-          (len(html.encode()),
-           len(obj.get("slots", {}).get("1510", {}).get("rows", []))))
+    slots = obj.get("slots", {})
+    n = max([len(v.get("rows", [])) for v in slots.values()] or [0])
+    print("生成 index.html %d 字节，标的 %d 只，档位 %s"
+          % (len(html.encode()), n, ",".join(slots.keys())))
     return 0
 
 if __name__ == "__main__":

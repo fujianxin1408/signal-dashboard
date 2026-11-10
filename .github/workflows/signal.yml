@@ -2,15 +2,16 @@ name: 盘中信号更新
 
 on:
   schedule:
-    # UTC 01:00-07:30 对应北京时间 09:00-15:30
-    # 每 30 分钟一档，覆盖 A 股全天交易时段
-    - cron: "0,30 1-7 * * 1-5"
+    # UTC 06:51 = 北京 14:51（盘中）
+    - cron: "51 6 * * 1-5"
+    # UTC 07:05 = 北京 15:05（收盘）
+    - cron: "5 7 * * 1-5"
   workflow_dispatch:
     inputs:
       slot:
-        description: "手动档位 HHMM，留空则自动判定"
+        description: "档位：live / 1451 / 1505"
         required: false
-        default: ""
+        default: "live"
 
 permissions:
   contents: write
@@ -39,9 +40,22 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: 判定档位
+        id: slot
+        run: |
+          MANUAL="${{ github.event.inputs.slot }}"
+          if [ -n "$MANUAL" ]; then
+            SLOT="$MANUAL"
+          else
+            HM=$(TZ=Asia/Shanghai date +%H%M)
+            if [ "$HM" -ge 1500 ]; then SLOT=1505; else SLOT=1451; fi
+          fi
+          echo "slot=$SLOT" >> $GITHUB_OUTPUT
+          echo "档位: $SLOT"
+
       - name: 抓取数据
         env:
-          MANUAL_SLOT: ${{ github.event.inputs.slot }}
+          MANUAL_SLOT: ${{ steps.slot.outputs.slot }}
         run: python ci/update_ci.py
 
       - name: 生成页面
@@ -55,6 +69,6 @@ jobs:
           if git diff --staged --quiet; then
             echo "无变更"
           else
-            git commit -m "data $(TZ=Asia/Shanghai date '+%Y-%m-%d %H:%M')"
+            git commit -m "data $(TZ=Asia/Shanghai date '+%Y-%m-%d %H:%M') [${{ steps.slot.outputs.slot }}]"
             git push
           fi
