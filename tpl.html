@@ -79,6 +79,23 @@ details.legend[open] summary::before{content:'▾ '}
 .posline:empty{display:none}
 .posline b{font-variant-numeric:tabular-nums;font-weight:600}
 .posline .dim{color:#aaa}
+/* ---- 持仓视图：卖出 / 止损放大置顶 ---- */
+.posline .kpi{display:inline-flex;align-items:baseline;gap:5px;padding:2px 9px;margin:2px 7px 2px 0;border-radius:4px;white-space:nowrap;vertical-align:middle}
+.posline .kpi i{font-style:normal;font-size:10px;opacity:.8}
+.posline .kpi b{font-size:14px;font-weight:700}
+.posline .kpi em{font-style:normal;font-size:10.5px;opacity:.85}
+.posline .k-sell{background:#e8f5e9;color:#2e7d32}
+.posline .k-stop{background:#fff4e0;color:#b26a00}
+.posline .posmeta{display:inline-block;color:#888;vertical-align:middle}
+.mini-row{display:inline-flex;align-items:baseline;gap:4px}
+.mini{font-style:normal;font-size:9.5px;font-weight:600;padding:0 4px;border-radius:3px;letter-spacing:.2px}
+.mini.m-stop{background:#fff4e0;color:#b26a00}
+.mini.m-sell{background:#e8f5e9;color:#2e7d32}
+.row.held .buycol b,.row.held .sellcol b{font-weight:700}
+.row.held .buycol{color:#b26a00}
+.row.held .sellcol{color:#2e7d32}
+.k-breach{color:#c0392b}
+
 .nw{white-space:nowrap}
 .up{color:#c0392b}.down{color:#2e7d32}
 .sep{display:flex;align-items:center;gap:7px;font-size:11px;color:#8a8f98;padding:7px 14px 5px;letter-spacing:.4px;background:#fcfcfd;border-bottom:1px solid #f0f0f2;font-weight:500}
@@ -125,6 +142,7 @@ details.legend[open] summary::before{content:'▾ '}
         带「MA250上 且 MA250升」的标的，买点还要求收盘站上年线、年线比 20 日前高——两条件打架时显示「贴线，无买点」，不给等不到的假买点。<br>
         <b>更新</b>＝浏览器直接拉实时报价本地重算，约 1 秒出结果；交易时段内每 10 分钟自动刷一次，收盘、午休、周末不发任何请求。点页头绿色标签可开关。<br>
         <b>持仓</b>列填你的成本价，自动算浮盈、涨到卖点还能赚多少、止损位与距离。数据只存在本机浏览器（localStorage），不上传、不同步。<br>
+        <b>持仓视图</b>：填了成本价的行会自动切换——不再提示买点价，第 5 列改显<b>止损价</b>，下方信息条把<b>卖出价</b>与<b>止损价</b>放大置顶，成本与浮盈退到次要位置；清空成本价即恢复原视图。<br>
         <b>大盘门控</b>：行内标注「仅大盘多头时有效」的票，沪深300 没站上 MA60 就只显示等待；标注「仅大盘空头（HS300&lt;MA60）时有效」的票（诺力股份）相反，指数转多头时哪怕价格到位也不买，信号列显示「待大盘转空」。
       </div>
     </details>

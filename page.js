@@ -366,57 +366,79 @@ function savePos() {
   try { localStorage.setItem(POS_KEY, JSON.stringify(POS)); } catch (e) {}
 }
 
+/* ============ 持仓视图：填了成本价就切换重点 ============
+ * 有成本 = 已持仓，不用再提醒买入价；重点变成「什么时候卖」和「什么时候止损」。
+ * 成本价纯前端 localStorage，输入即时生效，不重绘整页（输入框不丢焦点）。
+ */
+function hasCost(r) { return Number(POS[r.code]) > 0 && Number(r.price) > 0; }
+
+// 风控价：优先回测硬止损 bt.stop；没有硬止损的票（如中国平安）沿用 MA60 趋势线
+function stopInfo(r) {
+  var cost = Number(POS[r.code]), px = Number(r.price);
+  var sp = Number((r.bt && r.bt.stop) || 0);
+  var target, kind;
+  if (sp > 0) { target = cost * (1 - sp / 100); kind = 'stop'; }
+  else if (r.ma60) { target = Number(r.ma60); kind = 'ma60'; }
+  else return null;
+  var dist = (target / px - 1) * 100;        // 负 = 还要跌才到
+  return { px: target, kind: kind, dist: dist, breached: dist > -0.05 };
+}
+
+// 第 5 列：未持仓 → 买点 + 距买点；持仓 → 止损价 + 距止损（不再出现买入价）
+function buyCellHtml(r) {
+  if (!hasCost(r)) return (r.nowin ? '—' : fmt(r.buy)) + gapBuyHtml(r);
+  var s = stopInfo(r);
+  if (!s) return '<span class="mini-row"><i class="mini m-stop">止损</i><b>未设</b></span>';
+  var tip = s.breached ? '已跌破' : '再跌 ' + Math.abs(s.dist).toFixed(1) + '%';
+  return '<span class="mini-row"><i class="mini m-stop">' +
+    (s.kind === 'ma60' ? '风控' : '止损') + '</i><b class="' +
+    (s.breached ? 'k-breach' : '') + '">' + fmt(s.px) + '</b></span>' +
+    '<i class="gap ' + (s.breached ? 'pos' : 'near') + '">' + tip + '</i>';
+}
+
+// 卖点列：持仓时加「卖出」标签并加粗，未持仓保持原样
+function sellCellHtml(r) {
+  if (!hasCost(r)) return fmt(r.sell) + gapSellHtml(r);
+  return '<span class="mini-row"><i class="mini m-sell">卖出</i><b>' + fmt(r.sell) +
+    '</b></span>' + gapSellHtml(r);
+}
+
 function posInner(r) {
   var cost = Number(POS[r.code]);
   if (!cost || !r.price) return '';
   var px = Number(r.price);
   var pnl = (px / cost - 1) * 100;
-  var out = [];
-  out.push('<span class="dim">成本</span> <b>' + fmt(cost) + '</b>');
   var word = pnl > 0.05 ? '浮盈' : (pnl < -0.05 ? '浮亏' : '持平');
-  out.push(word + ' <b class="' + (pnl > 0.05 ? 'up' : (pnl < -0.05 ? 'down' : '')) + '">' +
-    (pnl > 0 ? '+' : '') + pnl.toFixed(1) + '%</b>');
+  var sellPx = r.sell ? Number(r.sell) : null;
+  // 距卖点与卖点列共用 gap_sell 口径（后端 gap()：以卖点为分母，正=已超卖点），
+  // 否则同一屏会出现「还需涨 3.6%」和「还需涨 3.8%」两个数字
+  var gSell = (r.gap_sell === null || r.gap_sell === undefined) ? null : Number(r.gap_sell);
+  var sellTip = (gSell === null || !isFinite(gSell)) ? ''
+    : (gSell > 0.05 ? '价格已到，该卖'
+       : (gSell > -0.05 ? '正好触价' : '还需涨 ' + Math.abs(gSell).toFixed(1) + '%'));
+  var s = stopInfo(r);
+  var out = [];
 
-  // 卖点：绝对价位由 BIAS6 反解得出，与成本无关；这里只算「相对你的成本赚多少」
-  // 成本高于卖点时，等到卖点仍然是亏的——必须点破，否则容易误以为「拿着就能回本」
-  if (r.sell) {
-    var gain = (r.sell / cost - 1) * 100;
-    var need = (r.sell / px - 1) * 100;
-    var tail;
-    if (gain < -0.05 && need > 0.05) {
-      tail = '<b class="down">（低于成本，等它不划算）</b>';
-    } else if (need > 0.05) {
-      tail = '<span class="dim">（还需涨 ' + need.toFixed(1) + '%）</span>';
-    } else {
-      tail = '<b class="up">（价格已到，该卖）</b>';
-    }
-    out.push('卖点 <b>' + fmt(r.sell) + '</b> <span class="dim">→</span> ' +
-      (gain > 0 ? '+' : '') + gain.toFixed(1) + '% ' + tail);
-  } else {
-    out.push('卖点 <span class="dim">—</span>');
-  }
+  // 两个醒目色块置顶：卖出价、止损价
+  out.push('<span class="kpi k-sell"><i>卖出</i><b>' + (sellPx ? fmt(sellPx) : '—') + '</b>' +
+    (sellTip ? '<em>' + sellTip + '</em>' : '') + '</span>');
+  out.push('<span class="kpi k-stop"><i>' + (s && s.kind === 'ma60' ? '风控' : '止损') + '</i><b>' +
+    (s ? fmt(s.px) : '未设') + '</b>' +
+    (s ? '<em>' + (s.breached ? '已跌破，按纪律走' : '再跌 ' + Math.abs(s.dist).toFixed(1) + '%') + '</em>'
+       : '<em>该策略未设</em>') + '</span>');
 
-  // 止损：成本 × (1 − stop%)，跌到就按纪律走
-  var sp = Number((r.bt && r.bt.stop) || 0);
-  if (sp > 0) {
-    var stopPx = cost * (1 - sp / 100);
-    var toStop = (stopPx / px - 1) * 100;
-    out.push('止损 <b>' + fmt(stopPx) + '</b> <span class="dim">→ -' + sp + '% </span>' +
-      (toStop < -0.05
-        ? '<span class="dim">（再跌 ' + Math.abs(toStop).toFixed(1) + '%）</span>'
-        : '<b class="down">（已跌破，按纪律走）</b>'));
-  } else if (r.ma60) {
-    // 没有硬止损的票（如中国平安回测显示加止损反而拖累），风控线就用买点条件本身：
-    // 买入要求站上 MA60，那跌破 MA60 就是趋势假设被推翻，比拍一个百分比更讲得通
-    var d60 = (r.ma60 / px - 1) * 100;
-    out.push('风控 <b>' + fmt(r.ma60) + '</b> ' +
-      (d60 < -0.05
-        ? '<span class="dim">（跌破 MA60 走，再跌 ' + Math.abs(d60).toFixed(1) + '%）</span>'
-        : '<b class="down">已在 MA60 下方，趋势已破</b>'));
-  } else {
-    out.push('止损 <span class="dim">该策略未设</span>');
+  // 次要信息：成本、浮盈、到卖点的盈亏
+  var meta = '<span class="posmeta">成本 <b>' + fmt(cost) + '</b> · ' + word +
+    ' <b class="' + (pnl > 0.05 ? 'up' : (pnl < -0.05 ? 'down' : '')) + '">' +
+    (pnl > 0 ? '+' : '') + pnl.toFixed(1) + '%</b>';
+  if (sellPx) {
+    var gain = (sellPx / cost - 1) * 100;
+    meta += ' · 到卖点 <b class="' + (gain >= 0 ? 'up' : 'down') + '">' +
+      (gain > 0 ? '+' : '') + gain.toFixed(1) + '%</b>';
+    if (gain < -0.05 && gSell !== null && gSell < -0.05) meta += ' <span class="dim">（低于成本，等它不划算）</span>';
   }
-  return out.join('　·　');
+  out.push(meta + '</span>');
+  return out.join('');
 }
 
 // 输入即算：只改这一行的信息条，不重绘整页——否则输入框会丢焦点
@@ -428,8 +450,16 @@ function onPosInput(e) {
   if (v > 0) POS[code] = v; else delete POS[code];
   savePos();
   var row = el.closest ? el.closest('.row') : null;
-  var line = row && row.querySelector('.posline');
-  if (line && ROWREF[code]) line.innerHTML = posInner(ROWREF[code]);
+  var r = ROWREF[code];
+  if (!row || !r) return;
+  var held = hasCost(r);
+  row.classList.toggle('held', held);
+  var line = row.querySelector('.posline');
+  if (line) line.innerHTML = posInner(r);
+  var bc = row.querySelector('.buycol');
+  if (bc) bc.innerHTML = buyCellHtml(r);
+  var sc = row.querySelector('.sellcol');
+  if (sc) sc.innerHTML = sellCellHtml(r);
 }
 document.addEventListener('input', onPosInput);
 
@@ -505,7 +535,7 @@ function render() {
     (hitN ? ' · 触发 ' + hitN : '') + '</div></div>' +
     '<div class="row hd">' +
     '<div>名称</div><div>现价</div><div class="hide-m">RSI14</div><div class="hide-m">BIAS6</div>' +
-    '<div>买点</div><div class="hide-m">卖点</div><div>信号</div><div>持仓</div></div>';
+    '<div>买点 / 止损</div><div class="hide-m">卖点</div><div>信号</div><div>持仓</div></div>';
 
   let lastStatus = null;
   const grpCnt = {};
@@ -520,14 +550,14 @@ function render() {
       lastStatus = r.status;
     }
     html +=
-      '<div class="row s-' + r.status + '">' +
+      '<div class="row s-' + r.status + (hasCost(r) ? ' held' : '') + '">' +
       '<div class="name">' + r.name + '<span class="code">' + r.code + '</span></div>' +
       '<div class="px">' + fmt(r.price) + '</div>' +
       '<div class="num hide-m">' + fmt(r.rsi, 1) + '</div>' +
       '<div class="num hide-m ' + (r.bias6 > 0 ? 'up' : 'down') + '">' +
       (r.bias6 > 0 ? '+' : '') + fmt(r.bias6, 2) + '%</div>' +
-      '<div class="px2">' + (r.nowin ? '—' : fmt(r.buy)) + gapBuyHtml(r) + '</div>' +
-      '<div class="px2 hide-m">' + fmt(r.sell) + gapSellHtml(r) + '</div>' +
+      '<div class="px2 buycol">' + buyCellHtml(r) + '</div>' +
+      '<div class="px2 hide-m sellcol">' + sellCellHtml(r) + '</div>' +
       '<div class="sg">' + tagOf(r) + '</div>' +
       '<div class="pcell"><input class="pin" inputmode="decimal" autocomplete="off" ' +
       'data-code="' + r.code + '" placeholder="成本" value="' +
