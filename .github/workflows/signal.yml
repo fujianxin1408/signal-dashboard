@@ -1,17 +1,25 @@
-name: 盘中信号更新
+name: 每日信号更新
 
 on:
   schedule:
-    # UTC 06:51 = 北京 14:51（盘中）
-    - cron: "51 6 * * 1-5"
-    # UTC 07:05 = 北京 15:05（收盘）
+    # 北京时间 15:05（收盘确认）。UTC 07:05，中国无夏令时
+    # 14:51 盘中档已于 2026-11-11 停用：盘中价随时变、信号收盘可能反转，噪音大于价值
     - cron: "5 7 * * 1-5"
   workflow_dispatch:
     inputs:
       slot:
-        description: "档位：live / 1451 / 1505"
-        required: false
+        description: "档位：live 手动刷新 / 1505 收盘"
+        required: true
         default: "live"
+        type: choice
+        options:
+          - live
+          - "1505"
+      force:
+        description: "覆盖当天已抓到的同档数据"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -43,32 +51,47 @@ jobs:
       - name: 判定档位
         id: slot
         run: |
-          MANUAL="${{ github.event.inputs.slot }}"
-          if [ -n "$MANUAL" ]; then
-            SLOT="$MANUAL"
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            # 用触发本次任务的 cron 判定，而不是用运行时刻反推：
+            # Actions 定时任务常延迟 5~40 分钟，反推会把 15:12 的数据标成 14:51
+            SLOT=1505
           else
-            HM=$(TZ=Asia/Shanghai date +%H%M)
-            if [ "$HM" -ge 1500 ]; then SLOT=1505; else SLOT=1451; fi
+            SLOT="${{ github.event.inputs.slot }}"
           fi
-          echo "slot=$SLOT" >> $GITHUB_OUTPUT
-          echo "档位: $SLOT"
+          FORCE="${{ github.event.inputs.force }}"
+          [ "$FORCE" = "true" ] || FORCE=0
+          echo "SLOT=$SLOT" >> $GITHUB_ENV
+          echo "FORCE=$FORCE" >> $GITHUB_ENV
+          echo "档位=$SLOT force=$FORCE"
 
       - name: 抓取数据
-        env:
-          MANUAL_SLOT: ${{ steps.slot.outputs.slot }}
         run: python ci/update_ci.py
 
       - name: 生成页面
         run: python build_site.py
+
+      # 只在 15:05 档推送；live 档（手动刷新、补跑）在脚本内部直接跳过。
+      # 没配 secret 时脚本只打 warning、不影响任务成败。
+      - name: 推送提醒
+        env:
+          WXPUSHER_TOKEN: ${{ secrets.WXPUSHER_TOKEN }}
+          WXPUSHER_UID: ${{ secrets.WXPUSHER_UID }}
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          DINGTALK_URL: ${{ secrets.DINGTALK_URL }}
+          FEISHU_URL: ${{ secrets.FEISHU_URL }}
+          PUSHPLUS_TOKEN: ${{ secrets.PUSHPLUS_TOKEN }}
+          PUSHPLUS_TOPIC: ${{ secrets.PUSHPLUS_TOPIC }}
+        run: python ci/notify.py
 
       - name: 提交并推送
         run: |
           git config user.name "signal-bot"
           git config user.email "signal-bot@users.noreply.github.com"
           git add data.json index.html
+          [ -f notify_state.json ] && git add notify_state.json
           if git diff --staged --quiet; then
             echo "无变更"
           else
-            git commit -m "data $(TZ=Asia/Shanghai date '+%Y-%m-%d %H:%M') [${{ steps.slot.outputs.slot }}]"
+            git commit -m "data $(TZ=Asia/Shanghai date '+%Y-%m-%d %H:%M') [$SLOT]"
             git push
           fi
