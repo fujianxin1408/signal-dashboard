@@ -125,8 +125,9 @@ function parseRule(rule) {
   return out;
 }
 
-// 合取条件 → 可成交区间 (lo, hi, nowin, why)。买侧一旦混入 MA60 / MA250 就是夹逼：
+// 合取条件 → 可成交区间 (lo, hi, nowin, why)。买侧混入 MA60上 / MA250上 时是夹逼：
 // 价格必须「在均线之上」同时又「乖离够低」，两者贴住时区间为空，没有买点。
+// 2026-11-12：MA250下 / MA60下 则给上界（与「上」共用同一个临界点，方向相反）。
 function critWindow(conds, c, ma6) {
   // 买侧 = 条件里有「阈值向下」的 rsi/bias；均线条件只给下界，不能拿 conds[0] 判方向
   const buySide = conds.some(k => (k[0] === 'rsi' || k[0] === 'bias') && k[1] === '<');
@@ -140,7 +141,10 @@ function critWindow(conds, c, ma6) {
     else if (k[0] === 'ma250up') f = ma250UpFloor(c);
     else { pts.push(k[0] === 'rsi' ? rsiPriceFor(c, k[2]) : biasPrice(c, k[2])); continue; }
     if (f === null) return [null, null, true, '历史不足'];   // 算不出均线，不给假买点
-    floors.push(f);
+    // MA250下 / MA60下 用的临界点与「上」是同一个数，但不等号方向相反：
+    // 它是价格上界（要跌破它才成立），必须放进 pts；否则会算成夹逼区间、报出假买点。
+    if ((k[0] === 'ma60' || k[0] === 'ma250') && k[1] === '<') pts.push(f);
+    else floors.push(f);
   }
   const lo0 = floors.length ? Math.max.apply(null, floors) : null;
   if (!pts.length) return [lo0, null, false, ''];
@@ -303,6 +307,8 @@ function gapBuyHtml(r) {
   if (!isFinite(g)) return '';
   if (g > 0.05) return '<i class="gap pos">已低 ' + g.toFixed(1) + '%</i>';
   if (g > -0.05) return '<i class="gap pos">正好触价</i>';
+  // 还需跌不到 2%：橙色标出，扫一眼就知道谁快到了
+  if (g > -2) return '<i class="gap near">还需跌 ' + Math.abs(g).toFixed(1) + '%</i>';
   return '<i class="gap">还需跌 ' + Math.abs(g).toFixed(1) + '%</i>';
 }
 
@@ -311,6 +317,7 @@ function gapSellHtml(r) {
   const g = r.gap_sell === null || r.gap_sell === undefined ? null : Number(r.gap_sell);
   if (g === null || !isFinite(g)) return '';
   if (g > 0.05) return '<i class="gap sell">已超 ' + g.toFixed(1) + '%</i>';
+  if (g > -2) return '<i class="gap near">还需涨 ' + Math.abs(g).toFixed(1) + '%</i>';
   return '<i class="gap">还需涨 ' + Math.abs(g).toFixed(1) + '%</i>';
 }
 
@@ -430,10 +437,11 @@ function render() {
 
   document.getElementById('date').textContent = D.date || '';
   const m = D.market || {};
-  document.getElementById('idx').innerHTML =
-    '沪深300 ' + fmt(m.idx, 1) + ' · MA60 ' + fmt(m.ma60, 1) +
-    ' <span class="badge ' + (m.bull ? 'bull' : 'bear') + '">' +
-    (m.bull ? '多头' : '空头') + '</span>';
+  document.getElementById('mktBadge').innerHTML =
+    '<span class="badge ' + (m.bull ? 'bull' : 'bear') + '">' +
+    (m.bull ? '大盘多头' : '大盘空头') + '</span>';
+  document.getElementById('idx').textContent =
+    '沪深300 ' + fmt(m.idx, 1) + ' · MA60 ' + fmt(m.ma60, 1);
   document.getElementById('upd').textContent = LIVE_AT
     ? ('实时 ' + LIVE_AT.slice(8, 10) + ':' + LIVE_AT.slice(10, 12) +
        ':' + LIVE_AT.slice(12, 14) + '　基准 ' + (D.updated || '—'))
@@ -462,9 +470,8 @@ function render() {
 
   const slot = D.slots[CUR];
   if (!slot) {
-    document.getElementById('stats').innerHTML = '';
     document.getElementById('list').innerHTML =
-      '<div class="sep">该时点还没有数据</div>';
+      '<div class="card"><div class="sep">该时点还没有数据</div></div>';
     return;
   }
 
@@ -476,12 +483,6 @@ function render() {
     stamp = slot.target + ' 档 · 实际 ' + slot.ts + ' 生成' +
       (sk === null ? '' : '（' + (sk > 0 ? '延迟 ' : '提前 ') + Math.abs(sk) + ' 分）');
   }
-  document.getElementById('stats').innerHTML =
-    '<span>买入 <b style="color:#c0392b">' + (c.buy || 0) + '</b></span>' +
-    '<span>卖出 <b style="color:#2e7d32">' + (c.sell || 0) + '</b></span>' +
-    '<span>等待 <b style="color:#888">' + (c.wait || 0) + '</b></span>' +
-    '<span style="color:#aaa">' + stamp + ' · 共 ' + slot.rows.length + ' 只' +
-    (hitN ? ' · 触发 ' + hitN : '') + '</span>';
 
   const rows = sortRows(slot.rows);
 
@@ -493,17 +494,27 @@ function render() {
   };
 
   let html =
-    '<div class="card"><div class="row hd">' +
+    '<div class="card">' +
+    '<div class="bar"><div class="barl">' +
+    '<span>买入 <b class="c-buy">' + (c.buy || 0) + '</b></span>' +
+    '<span>卖出 <b class="c-sell">' + (c.sell || 0) + '</b></span>' +
+    '<span>等待 <b class="c-wait">' + (c.wait || 0) + '</b></span>' +
+    '</div><div class="barr">' + stamp + ' · 共 ' + slot.rows.length + ' 只' +
+    (hitN ? ' · 触发 ' + hitN : '') + '</div></div>' +
+    '<div class="row hd">' +
     '<div>名称</div><div>现价</div><div class="hide-m">RSI14</div><div class="hide-m">BIAS6</div>' +
     '<div>买点</div><div class="hide-m">卖点</div><div>信号</div><div>持仓</div></div>';
 
   let lastStatus = null;
+  const grpCnt = {};
+  rows.forEach(r => { grpCnt[r.status] = (grpCnt[r.status] || 0) + 1; });
   ROWREF = {};
   rows.forEach(r => {
     ROWREF[r.code] = r;
     if (r.status !== lastStatus) {
       const t = { buy: '买入触发', sell: '卖出触发', wait: '其余观察' }[r.status];
-      html += '<div class="sep">' + t + '</div>';
+      html += '<div class="sep s-' + r.status + '">' + t +
+        ' <span class="cnt">· ' + (grpCnt[r.status] || 0) + ' 只</span></div>';
       lastStatus = r.status;
     }
     html +=
