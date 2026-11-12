@@ -32,6 +32,11 @@ GitHub Actions 版数据抓取（替代沙箱内 update.py 的更新职责）
        但不等号方向相反，它是价格「上界」而不是下界。critical_window 按 op 把均线
        临界值分派到 pts（<）或 floors（>），否则「年线下才买」会被解成夹逼区间而算错买点。
      · hit() / 前端 hitTest() 本来就支持 < 方向，无需改动；parse_rule 也已把「下」解析成 <。
+  9) 大盘门控方向（2026-11-12，配合诺力股份 603611）：
+     · bt.mkt=True/"bull" 表示「需要沪深300 > MA60（多头）」；bt.mkt="bear" 表示
+       「需要沪深300 < MA60（空头）」。两者都只在价格条件已触发时把 buy 降为 wait，
+       并在行内标记原因；缺省不做大盘判断。
+     · 前端 recalcRow 用同一规则读 bt.mkt 与重算后的 bull，保证实时与收盘归档不打架。
 """
 import datetime as dt
 import json
@@ -51,7 +56,8 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA_FILE = os.path.join(ROOT, "data.json")
 
 # code, 名称, 买点条件, 卖点条件, 市场, 回测口径
-#   bt: n=笔数 win=胜率% total=累计% stop=止损% mkt=是否需要大盘(HS300>MA60) years=样本起点备注
+#   bt: n=笔数 win=胜率% total=累计% stop=止损% years=样本起点备注
+#       mkt=大盘门控：True/"bull" 需 HS300>MA60（多头），"bear" 需 HS300<MA60（空头），缺省无要求
 WATCH = [
     ("600019", "宝钢股份", "RSI14<32", "RSI14>55", "sh", {}),
     ("600887", "伊利股份", "BIAS6<-2.5%", "BIAS6>+1.5%", "sh",
@@ -109,6 +115,14 @@ WATCH = [
     # 回测为前复权口径，看板实时价为不复权，两者年线值会有小幅差异。
     ("002563", "森马服饰", "MA250下 且 RSI14<50 且 BIAS6<-6.0%", "RSI14>65", "sz",
      {"n": 22, "win": 59.1, "total": 297.7, "stop": 8, "years": "2012-04 起 14.6 年"}),
+    # 2026-11-12 新增：10.7 年 26 笔胜率 76.9%、累计 +348.5%、年化 15.1%、回撤 17.9%。
+    # 与森马不同，它要「弱势里的弱势」：年线下 + 沪深300 也在 MA60 之下才接。
+    # 120 组参数对照里加这套过滤后 92% 年化改善、100% 回撤变小、94% 胜率提高。
+    # 注意 mkt="bear" 是反向门控（要空头），与金山办公/青岛啤酒的 True（要多头）相反。
+    # 回测为前复权口径（年线 19.34），看板实时价为不复权，年线数值会有差异。
+    ("603611", "诺力股份", "MA250下 且 RSI14<45 且 BIAS6<-5.0%", "RSI14>55", "sh",
+     {"n": 26, "win": 76.9, "total": 348.5, "stop": 12, "mkt": "bear",
+      "years": "2016-03 起 10.7 年"}),
 ]
 ETF_CODES = {"515080"}
 UA = {
@@ -543,7 +557,14 @@ def main():
             bc, sc = parse_rule(buy_rule), parse_rule(sell_rule)
             buy_lo, buy_px, no_win, nowhy = critical_window(bc, closes, ma6)
             sell_px = critical_price(sc, closes, ma6)
-            blocked = bool(bt.get("mkt")) and not bull
+            # 大盘门控：True/"bull" 需要多头，"bear" 需要空头；方向由 bt.mkt 决定
+            mkt_req = bt.get("mkt")
+            if mkt_req == "bear":
+                blocked = bool(bull)          # 要空头却是多头 → 拦
+            elif mkt_req:
+                blocked = not bull            # 要多头却是空头 → 拦
+            else:
+                blocked = False
             buy_hit = hit(bc, rsi, bias6, price, sma60, sma250, up250)
             sell_hit = hit(sc, rsi, bias6, price, sma60, sma250, up250)
             if buy_hit:
@@ -571,7 +592,8 @@ def main():
                 "gap_sell": gap(price, sell_px, "sell"),
                 "d5": round(d5, 1),
                 "buy_rule": buy_rule, "sell_rule": sell_rule,
-                "status": status, "blocked": "大盘" if blocked and buy_hit else "",
+                "status": status,
+                "blocked": ("待大盘转空" if mkt_req == "bear" else "大盘拦") if blocked and buy_hit else "",
                 "bt": bt or None,
                 "intraday": not final,
                 # 前端「更新」按钮做本地实时重算用：最近 300 根收盘 + 最后一根的日期

@@ -13,6 +13,7 @@ const WORKER_URL = '';
  *   · 实时：qt.gtimg.cn 批量报价，一次请求拿全部标的，ACAO:* 可直接跨域
  *   · 算法：逐行复刻 ci/update_ci.py 的 MA6 / BIAS6 / RSI14 Wilder /
  *           buy 闭式解 / 卖点反解 / MA60·MA250 夹逼窗口，口径完全一致
+ *   · 门控：bt.mkt='bear' 需要大盘空头，其余真值需要大盘多头（与后端一致）
  * 结果：点一下 1 秒内出结果，不用等 Actions 那 2 分钟。
  */
 const QT_URL = 'https://qt.gtimg.cn/q=';
@@ -205,7 +206,8 @@ function recalcRow(r, price, mktBull) {
   const bc = parseRule(r.buy_rule), sc = parseRule(r.sell_rule);
   const bw = critWindow(bc, h, ma6);
   const sw = critWindow(sc, h, ma6);
-  const blocked = !!(r.bt && r.bt.mkt) && !mktBull;
+  const mktReq = (r.bt && r.bt.mkt) || null;
+  const blocked = mktReq === 'bear' ? !!mktBull : (!!mktReq && !mktBull);
   const bHit = hitTest(bc, rsi, bias6, price, sma60, sma250, up250);
   const sHit = hitTest(sc, rsi, bias6, price, sma60, sma250, up250);
 
@@ -228,7 +230,7 @@ function recalcRow(r, price, mktBull) {
   o.gap_sell = gapOf(price, sw[1], 'sell');
   o.d5 = Number((((price / h[h.length - 6]) - 1) * 100).toFixed(1));
   o.status = bHit ? (blocked ? 'wait' : 'buy') : (sHit ? 'sell' : 'wait');
-  o.blocked = (blocked && bHit) ? '大盘' : '';
+  o.blocked = (blocked && bHit) ? (mktReq === 'bear' ? '待大盘转空' : '大盘拦') : '';
   o.intraday = true;
   return o;
 }
@@ -490,7 +492,7 @@ function render() {
     if (r.status === 'buy') return '<span class="tag t-buy">买入</span>';
     if (r.status === 'sell') return '<span class="tag t-sell">卖出</span>';
     return '<span class="tag t-wait">等待</span>' +
-      (r.blocked ? '<span class="tag t-blk">' + r.blocked + '拦</span>' : '');
+      (r.blocked ? '<span class="tag t-blk">' + r.blocked + '</span>' : '');
   };
 
   let html =
@@ -532,7 +534,9 @@ function render() {
       (POS[r.code] ? POS[r.code] : '') + '"></div>' +
       '<div class="posline">' + posInner(r) + '</div>' +
       '<div class="rule">买 ' + r.buy_rule + ' ｜ 卖 ' + r.sell_rule +
-      (r.bt ? ' ｜ ' + btText(r.bt) : '') + ma250Text(r) + '</div>' +
+      (r.bt ? ' ｜ ' + btText(r.bt) : '') + ma250Text(r) +
+      (r.bt && r.bt.mkt === 'bear' ? ' ｜ 仅大盘空头（HS300&lt;MA60）时有效'
+        : (r.bt && r.bt.mkt ? ' ｜ 仅大盘多头时有效' : '')) + '</div>' +
       '</div>';
   });
 
