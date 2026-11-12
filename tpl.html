@@ -95,6 +95,29 @@ details.legend[open] summary::before{content:'▾ '}
 .row.held .buycol{color:#b26a00}
 .row.held .sellcol{color:#2e7d32}
 .k-breach{color:#c0392b}
+/* ---- 持仓视图增强：分组 / 金额 / 股数 / 跌破提醒 ---- */
+.c-held{color:#0a8f5b}
+.sep.s-held{color:#0a8f5b;background:#f7fcf9}
+.sep.s-held::before{background:#0a8f5b}
+.sep .hsum{margin-left:8px;color:#8a8f98;font-weight:400;letter-spacing:0;font-variant-numeric:tabular-nums}
+.sep .hsum b{font-weight:600}
+.sep .clrall,.posline .clrrow{background:none;border:1px solid #e2e4e8;color:#9a9ea6;font-size:10.5px;border-radius:4px;padding:1px 7px;cursor:pointer;font-family:inherit;white-space:nowrap}
+.sep .clrall{margin-left:auto}
+.posline .clrrow{margin-left:8px}
+.sep .clrall:hover,.posline .clrrow:hover{border-color:#c0392b;color:#c0392b}
+.posline-top,.posline-bot{display:block}
+.posline-bot{margin-top:2px}
+.posline .warn{display:inline-block;background:#fde8e8;color:#c0392b;font-size:10.5px;font-weight:600;padding:1px 8px;border-radius:4px;vertical-align:middle}
+.posline .warn.sell{background:#e8f5e9;color:#2e7d32}
+.posline .kpi.hit{background:#dcefe0;color:#1b6b34}
+.posline .kpi.breach{background:#fde8e8;color:#c0392b}
+.posline .posact{display:inline-flex;align-items:center;gap:6px;margin-left:10px;padding-left:10px;border-left:1px solid #e0e2e6;vertical-align:middle}
+.posline .qbox{display:inline-flex;align-items:center;gap:4px;color:#888;vertical-align:middle}
+.qin{width:64px;box-sizing:border-box;border:1px solid #e6e7ea;border-radius:4px;background:#fff;padding:1px 6px;font-size:11px;text-align:right;color:#333;font-variant-numeric:tabular-nums;font-family:inherit}
+.qin:focus{outline:none;border-color:#0a8f5b}
+.qin::placeholder{color:#c8cad0}
+.posline .money{font-variant-numeric:tabular-nums;font-weight:600}
+.row.breached{background:#fdf2f1;box-shadow:inset 3px 0 0 #c0392b}
 
 .nw{white-space:nowrap}
 .up{color:#c0392b}.down{color:#2e7d32}
@@ -116,6 +139,10 @@ details.legend[open] summary::before{content:'▾ '}
  .tabts{display:none}
  .bar{padding:8px 12px}
  .legend .lg{font-size:11px}
+ .sep{flex-wrap:wrap}
+ .sep .hsum{flex-basis:100%;margin:2px 0 0 10px}
+ .sep .clrall{margin-left:auto}
+ .posline .posact{margin-left:0;padding-left:0;border-left:none;margin-top:5px}
 }
 .foot{text-align:center;font-size:11px;color:#b0b3ba;padding:18px 0 4px}
 #toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);background:rgba(26,26,26,.92);color:#fff;font-size:12.5px;padding:9px 15px;border-radius:8px;opacity:0;transition:opacity .25s;pointer-events:none;z-index:99;white-space:nowrap;max-width:88vw;overflow:hidden;text-overflow:ellipsis}
@@ -143,6 +170,7 @@ details.legend[open] summary::before{content:'▾ '}
         <b>更新</b>＝浏览器直接拉实时报价本地重算，约 1 秒出结果；交易时段内每 10 分钟自动刷一次，收盘、午休、周末不发任何请求。点页头绿色标签可开关。<br>
         <b>持仓</b>列填你的成本价，自动算浮盈、涨到卖点还能赚多少、止损位与距离。数据只存在本机浏览器（localStorage），不上传、不同步。<br>
         <b>持仓视图</b>：填了成本价的行会自动切换——不再提示买点价，第 5 列改显<b>止损价</b>，下方信息条把<b>卖出价</b>与<b>止损价</b>放大置顶，成本与浮盈退到次要位置；清空成本价即恢复原视图。<br>
+        <b>持仓增强</b>：持仓的行集中到最上方「我的持仓」分组，按「跌破止损 → 已到卖点 → 距卖点远近」排序，页头显示持仓只数；填<b>股数</b>后能看到浮动盈亏金额、市值、到卖点金额与分组合计；跌破止损时整行标红并提示按纪律离场，价格到卖点提示分批了结。行内「清空持仓」或分组右侧「清空全部」可一键移除，成本与股数仍只存本机浏览器。<br>
         <b>大盘门控</b>：行内标注「仅大盘多头时有效」的票，沪深300 没站上 MA60 就只显示等待；标注「仅大盘空头（HS300&lt;MA60）时有效」的票（诺力股份）相反，指数转多头时哪怕价格到位也不买，信号列显示「待大盘转空」。
       </div>
     </details>

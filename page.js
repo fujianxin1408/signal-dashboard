@@ -359,22 +359,50 @@ function ma250Text(r) {
  */
 var POS_KEY = 'sig_pos_v1';
 var POS = {};
-try { POS = JSON.parse(localStorage.getItem(POS_KEY) || '{}') || {}; } catch (e) { POS = {}; }
 var ROWREF = {};
 
 function savePos() {
   try { localStorage.setItem(POS_KEY, JSON.stringify(POS)); } catch (e) {}
 }
 
+try { POS = JSON.parse(localStorage.getItem(POS_KEY) || '{}') || {}; } catch (e) { POS = {}; }
+
+/* 旧版只存成本价：{code: 12.34}。新版存 {code:{cost,qty}}。
+ * 载入时归一一次，用户以前填过的成本不会丢，也不必手动迁移。 */
+(function () {
+  var changed = false;
+  Object.keys(POS).forEach(function (k) {
+    var v = POS[k];
+    if (typeof v === 'number' || typeof v === 'string') {
+      POS[k] = { cost: Number(v) || 0, qty: 0 }; changed = true;
+    } else if (!v || typeof v !== 'object') {
+      delete POS[k]; changed = true;
+    } else {
+      if (v.cost === undefined) { v.cost = 0; changed = true; }
+      if (v.qty === undefined) { v.qty = 0; changed = true; }
+    }
+  });
+  if (changed) savePos();
+})();
+
+function posCost(code) { var p = POS[code]; return p ? (Number(p.cost) || 0) : 0; }
+function posQty(code) { var p = POS[code]; return p ? (Number(p.qty) || 0) : 0; }
+function yuan(v) { return '¥' + Math.round(v).toLocaleString('zh-CN'); }
+function money(v) {
+  if (!isFinite(v)) return '—';
+  var a = Math.abs(Math.round(v)).toLocaleString('zh-CN');
+  return (v > 0 ? '+' : (v < 0 ? '−' : '')) + '¥' + a;
+}
+
 /* ============ 持仓视图：填了成本价就切换重点 ============
  * 有成本 = 已持仓，不用再提醒买入价；重点变成「什么时候卖」和「什么时候止损」。
- * 成本价纯前端 localStorage，输入即时生效，不重绘整页（输入框不丢焦点）。
+ * 成本价、股数纯前端 localStorage，输入即时生效，不上传、不进 data.json。
  */
-function hasCost(r) { return Number(POS[r.code]) > 0 && Number(r.price) > 0; }
+function hasCost(r) { return posCost(r.code) > 0 && Number(r.price) > 0; }
 
 // 风控价：优先回测硬止损 bt.stop；没有硬止损的票（如中国平安）沿用 MA60 趋势线
 function stopInfo(r) {
-  var cost = Number(POS[r.code]), px = Number(r.price);
+  var cost = posCost(r.code), px = Number(r.price);
   var sp = Number((r.bt && r.bt.stop) || 0);
   var target, kind;
   if (sp > 0) { target = cost * (1 - sp / 100); kind = 'stop'; }
@@ -382,6 +410,16 @@ function stopInfo(r) {
   else return null;
   var dist = (target / px - 1) * 100;        // 负 = 还要跌才到
   return { px: target, kind: kind, dist: dist, breached: dist > -0.05 };
+}
+function isBreached(r) { var s = stopInfo(r); return !!(hasCost(r) && s && s.breached); }
+
+// 持仓组内排序：跌破止损最急 → 已触发卖出 → 越接近卖点越靠前
+function cmpHeld(a, b) {
+  var ba = isBreached(a) ? 1 : 0, bb = isBreached(b) ? 1 : 0;
+  if (ba !== bb) return bb - ba;
+  var sa = a.status === 'sell' ? 1 : 0, sb = b.status === 'sell' ? 1 : 0;
+  if (sa !== sb) return sb - sa;
+  return (Number(b.gap_sell) || 0) - (Number(a.gap_sell) || 0);
 }
 
 // 第 5 列：未持仓 → 买点 + 距买点；持仓 → 止损价 + 距止损（不再出现买入价）
@@ -403,10 +441,32 @@ function sellCellHtml(r) {
     '</b></span>' + gapSellHtml(r);
 }
 
+// 分组合计：只把填了股数的持仓计入，没填股数就提示怎么开
+function heldSummaryHtml(list) {
+  var sum = 0, mv = 0, hasQty = false;
+  list.forEach(function (r) {
+    var q = posQty(r.code);
+    if (q > 0) {
+      hasQty = true;
+      sum += (Number(r.price) - posCost(r.code)) * q;
+      mv += Number(r.price) * q;
+    }
+  });
+  if (!hasQty) return '填股数可看合计盈亏';
+  return '合计浮盈亏 <b class="' + (sum >= 0 ? 'up' : 'down') + '">' + money(sum) +
+    '</b> · 市值 <b>' + yuan(mv) + '</b>';
+}
+function paintHeldSummary() {
+  var el = document.getElementById('heldSum');
+  if (!el) return;
+  var list = Object.keys(ROWREF).map(function (k) { return ROWREF[k]; }).filter(hasCost);
+  el.innerHTML = heldSummaryHtml(list);
+}
+
 function posInner(r) {
-  var cost = Number(POS[r.code]);
+  var cost = posCost(r.code);
   if (!cost || !r.price) return '';
-  var px = Number(r.price);
+  var px = Number(r.price), qty = posQty(r.code);
   var pnl = (px / cost - 1) * 100;
   var word = pnl > 0.05 ? '浮盈' : (pnl < -0.05 ? '浮亏' : '持平');
   var sellPx = r.sell ? Number(r.sell) : null;
@@ -417,51 +477,122 @@ function posInner(r) {
     : (gSell > 0.05 ? '价格已到，该卖'
        : (gSell > -0.05 ? '正好触价' : '还需涨 ' + Math.abs(gSell).toFixed(1) + '%'));
   var s = stopInfo(r);
+  var soldOut = gSell !== null && gSell > 0.05;
   var out = [];
 
-  // 两个醒目色块置顶：卖出价、止损价
-  out.push('<span class="kpi k-sell"><i>卖出</i><b>' + (sellPx ? fmt(sellPx) : '—') + '</b>' +
-    (sellTip ? '<em>' + sellTip + '</em>' : '') + '</span>');
-  out.push('<span class="kpi k-stop"><i>' + (s && s.kind === 'ma60' ? '风控' : '止损') + '</i><b>' +
-    (s ? fmt(s.px) : '未设') + '</b>' +
+  // 第一行：卖出价、止损价两个放大色块 + 醒目提示
+  out.push('<span class="posline-top">' +
+    '<span class="kpi k-sell' + (soldOut ? ' hit' : '') + '"><i>卖出</i><b>' +
+    (sellPx ? fmt(sellPx) : '—') + '</b>' + (sellTip ? '<em>' + sellTip + '</em>' : '') + '</span>' +
+    '<span class="kpi k-stop' + (s && s.breached ? ' breach' : '') + '"><i>' +
+    (s && s.kind === 'ma60' ? '风控' : '止损') + '</i><b>' + (s ? fmt(s.px) : '未设') + '</b>' +
     (s ? '<em>' + (s.breached ? '已跌破，按纪律走' : '再跌 ' + Math.abs(s.dist).toFixed(1) + '%') + '</em>'
-       : '<em>该策略未设</em>') + '</span>');
+       : '<em>该策略未设</em>') + '</span>' +
+    (s && s.breached ? '<span class="warn">已跌破止损价，按纪律离场</span>'
+       : (soldOut ? '<span class="warn sell">价格已到卖点，可考虑分批了结</span>' : '')) +
+    '</span>');
 
-  // 次要信息：成本、浮盈、到卖点的盈亏
+  // 第二行：成本 / 浮盈 / 到卖点 / 金额 / 股数输入 / 清空
+  var signPct = function (v) {
+    return (v > 0.05 ? '+' : (v < -0.05 ? '−' : '')) + Math.abs(v).toFixed(1) + '%';
+  };
   var meta = '<span class="posmeta">成本 <b>' + fmt(cost) + '</b> · ' + word +
     ' <b class="' + (pnl > 0.05 ? 'up' : (pnl < -0.05 ? 'down' : '')) + '">' +
-    (pnl > 0 ? '+' : '') + pnl.toFixed(1) + '%</b>';
+    signPct(pnl) + '</b>';
   if (sellPx) {
     var gain = (sellPx / cost - 1) * 100;
     meta += ' · 到卖点 <b class="' + (gain >= 0 ? 'up' : 'down') + '">' +
-      (gain > 0 ? '+' : '') + gain.toFixed(1) + '%</b>';
+      signPct(gain) + '</b>';
     if (gain < -0.05 && gSell !== null && gSell < -0.05) meta += ' <span class="dim">（低于成本，等它不划算）</span>';
   }
-  out.push(meta + '</span>');
+  if (qty > 0) {
+    var amt = (px - cost) * qty;
+    meta += ' · 浮动盈亏 <b class="money ' + (amt >= 0 ? 'up' : 'down') + '">' + money(amt) + '</b>' +
+      ' · 市值 <b>' + yuan(px * qty) + '</b>';
+    if (sellPx) meta += ' · 到卖点金额 <b class="money">' + money((sellPx - cost) * qty) + '</b>';
+  }
+  meta += '</span>';
+
+  out.push('<span class="posline-bot">' + meta +
+    '<span class="posact">' +
+    '<span class="qbox">股数 <input class="qin" inputmode="numeric" autocomplete="off" ' +
+    'data-code="' + r.code + '" value="' + (qty > 0 ? qty : '') + '" placeholder="0"></span>' +
+    '<button type="button" class="clrrow" data-code="' + r.code + '">清空持仓</button>' +
+    '</span></span>');
   return out.join('');
 }
 
-// 输入即算：只改这一行的信息条，不重绘整页——否则输入框会丢焦点
-function onPosInput(e) {
-  var el = e.target;
-  if (!el || !el.classList || !el.classList.contains('pin')) return;
-  var code = el.dataset.code;
-  var v = parseFloat(String(el.value).replace(/[^\d.]/g, ''));
-  if (v > 0) POS[code] = v; else delete POS[code];
-  savePos();
-  var row = el.closest ? el.closest('.row') : null;
-  var r = ROWREF[code];
-  if (!row || !r) return;
-  var held = hasCost(r);
-  row.classList.toggle('held', held);
+// 替换本行信息条后把焦点与光标还回原输入框，避免输入被打断
+function updateRowLive(r, row, code, cls) {
+  var ae = document.activeElement, sPos = null, ePos = null;
+  if (ae && ae.dataset && ae.dataset.code === code) {
+    cls = ae.classList.contains('qin') ? 'qin' : 'pin';
+    try { sPos = ae.selectionStart; ePos = ae.selectionEnd; } catch (e) {}
+  }
   var line = row.querySelector('.posline');
   if (line) line.innerHTML = posInner(r);
   var bc = row.querySelector('.buycol');
   if (bc) bc.innerHTML = buyCellHtml(r);
   var sc = row.querySelector('.sellcol');
   if (sc) sc.innerHTML = sellCellHtml(r);
+  row.classList.toggle('held', hasCost(r));
+  row.classList.toggle('breached', isBreached(r));
+  var nl = row.querySelector('.' + cls + '[data-code="' + code + '"]');
+  if (nl) { try { nl.focus(); if (sPos !== null) nl.setSelectionRange(sPos, ePos); } catch (e) {} }
+}
+
+// 持仓状态变了要整页重绘才能归组；重绘后同样把焦点还回去
+function renderKeepFocus(code, cls) {
+  var ae = document.activeElement, sPos = null, ePos = null;
+  if (ae && ae.dataset && ae.dataset.code === code) {
+    cls = ae.classList.contains('qin') ? 'qin' : 'pin';
+    try { sPos = ae.selectionStart; ePos = ae.selectionEnd; } catch (e) {}
+  }
+  render();
+  var nl = document.querySelector('.' + cls + '[data-code="' + code + '"]');
+  if (nl) { try { nl.focus(); if (sPos !== null) nl.setSelectionRange(sPos, ePos); } catch (e) {} }
+}
+
+// 输入即算：只改这一行的信息条，不重绘整页——否则输入框会丢焦点
+function onPosInput(e) {
+  var el = e.target;
+  if (!el || !el.classList || !el.dataset) return;
+  var isQty = el.classList.contains('qin');
+  if (!isQty && !el.classList.contains('pin')) return;
+  var code = el.dataset.code;
+  var r = ROWREF[code];
+  if (!code || !r) return;
+  var v = parseFloat(String(el.value).replace(/[^\d.]/g, ''));
+  if (!(v > 0)) v = 0;
+  var wasHeld = hasCost(r);
+  if (!POS[code]) POS[code] = { cost: 0, qty: 0 };
+  if (isQty) POS[code].qty = Math.floor(v); else POS[code].cost = v;
+  if (!POS[code].cost && !POS[code].qty) delete POS[code];
+  savePos();
+  if (hasCost(r) !== wasHeld) { renderKeepFocus(code, isQty ? 'qin' : 'pin'); return; }
+  var row = el.closest ? el.closest('.row') : null;
+  if (row) updateRowLive(r, row, code, isQty ? 'qin' : 'pin');
+  paintHeldSummary();
 }
 document.addEventListener('input', onPosInput);
+
+// 一键清空：行内按钮清一只，分组右侧按钮清全部
+document.addEventListener('click', function (e) {
+  var t = e.target;
+  if (!t || !t.classList || !t.dataset) return;
+  if (t.classList.contains('clrrow')) {
+    var code = t.dataset.code;
+    var nm = ROWREF[code] ? ROWREF[code].name : code;
+    delete POS[code]; savePos();
+    renderKeepFocus(code, 'pin');
+    toast('已清空 ' + nm + ' 的持仓');
+  } else if (t.classList.contains('clrall')) {
+    var n = Object.keys(POS).length;
+    if (!n) { toast('当前没有持仓'); return; }
+    POS = {}; savePos(); render();
+    toast('已清空 ' + n + ' 只持仓');
+  }
+});
 
 function render() {
   const D = DATA;
@@ -516,7 +647,9 @@ function render() {
       (sk === null ? '' : '（' + (sk > 0 ? '延迟 ' : '提前 ') + Math.abs(sk) + ' 分）');
   }
 
-  const rows = sortRows(slot.rows);
+  const sorted = sortRows(slot.rows);
+  const heldRows = sorted.filter(hasCost).sort(cmpHeld);
+  const rows = heldRows.concat(sorted.filter(function (r) { return !hasCost(r); }));
 
   const tagOf = r => {
     if (r.status === 'buy') return '<span class="tag t-buy">买入</span>';
@@ -531,26 +664,36 @@ function render() {
     '<span>买入 <b class="c-buy">' + (c.buy || 0) + '</b></span>' +
     '<span>卖出 <b class="c-sell">' + (c.sell || 0) + '</b></span>' +
     '<span>等待 <b class="c-wait">' + (c.wait || 0) + '</b></span>' +
+    '<span>持仓 <b class="c-held">' + heldRows.length + '</b></span>' +
     '</div><div class="barr">' + stamp + ' · 共 ' + slot.rows.length + ' 只' +
     (hitN ? ' · 触发 ' + hitN : '') + '</div></div>' +
     '<div class="row hd">' +
     '<div>名称</div><div>现价</div><div class="hide-m">RSI14</div><div class="hide-m">BIAS6</div>' +
     '<div>买点 / 止损</div><div class="hide-m">卖点</div><div>信号</div><div>持仓</div></div>';
 
-  let lastStatus = null;
+  let lastKey = null;
   const grpCnt = {};
-  rows.forEach(r => { grpCnt[r.status] = (grpCnt[r.status] || 0) + 1; });
+  rows.forEach(r => { if (!hasCost(r)) grpCnt[r.status] = (grpCnt[r.status] || 0) + 1; });
   ROWREF = {};
   rows.forEach(r => {
     ROWREF[r.code] = r;
-    if (r.status !== lastStatus) {
-      const t = { buy: '买入触发', sell: '卖出触发', wait: '其余观察' }[r.status];
-      html += '<div class="sep s-' + r.status + '">' + t +
-        ' <span class="cnt">· ' + (grpCnt[r.status] || 0) + ' 只</span></div>';
-      lastStatus = r.status;
+    const held = hasCost(r);
+    const key = held ? 'held' : r.status;
+    if (key !== lastKey) {
+      if (held) {
+        html += '<div class="sep s-held">我的持仓 <span class="cnt">· ' + heldRows.length + ' 只</span>' +
+          '<span class="hsum" id="heldSum">' + heldSummaryHtml(heldRows) + '</span>' +
+          '<button type="button" class="clrall">清空全部</button></div>';
+      } else {
+        const t = { buy: '买入触发', sell: '卖出触发', wait: '其余观察' }[r.status];
+        html += '<div class="sep s-' + r.status + '">' + t +
+          ' <span class="cnt">· ' + (grpCnt[r.status] || 0) + ' 只</span></div>';
+      }
+      lastKey = key;
     }
     html +=
-      '<div class="row s-' + r.status + (hasCost(r) ? ' held' : '') + '">' +
+      '<div class="row s-' + r.status + (held ? ' held' : '') +
+      (isBreached(r) ? ' breached' : '') + '">' +
       '<div class="name">' + r.name + '<span class="code">' + r.code + '</span></div>' +
       '<div class="px">' + fmt(r.price) + '</div>' +
       '<div class="num hide-m">' + fmt(r.rsi, 1) + '</div>' +
@@ -561,7 +704,7 @@ function render() {
       '<div class="sg">' + tagOf(r) + '</div>' +
       '<div class="pcell"><input class="pin" inputmode="decimal" autocomplete="off" ' +
       'data-code="' + r.code + '" placeholder="成本" value="' +
-      (POS[r.code] ? POS[r.code] : '') + '"></div>' +
+      (posCost(r.code) ? posCost(r.code) : '') + '"></div>' +
       '<div class="posline">' + posInner(r) + '</div>' +
       '<div class="rule">买 ' + r.buy_rule + ' ｜ 卖 ' + r.sell_rule +
       (r.bt ? ' ｜ ' + btText(r.bt) : '') + ma250Text(r) +
