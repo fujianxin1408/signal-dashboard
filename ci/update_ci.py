@@ -139,6 +139,16 @@ WATCH = [
     ("600398", "海澜之家", "MA250上 且 RSI14<50 且 BIAS6<-3.0%", "BIAS6>+3.0%", "sh",
      {"n": 40, "win": 77.5, "total": 231.2, "stop": 12,
       "years": "2014-01 起 12.9 年"}),
+    # 2026-11-14 新增：15.6 年 26 笔胜率 80.8%、累计 +209.4%、年化 7.5%、回撤 19.4%，
+    # 同期买入持有 -14.4%（不复权）/ +约 +100%（含分红），持仓只占 26% 时间。
+    # 所有趋势、追涨、均线类策略在这只票上都亏钱，只有「RSI14<30 接超跌 / >60 卖」有效：
+    # RSI<30 后 20 日中位 +4.4%、胜率 79%。
+    # 77 次除息、每股累计分红 4.58 元。不复权 K 线在除息日留下向下跳空，Wilder RSI
+    # 把它记成下跌，全历史多出 36 天假超跌（回测里不存在的买点），故这只票单独走
+    # 前复权日线（bt.qfq=True）；其余 28 只仍用不复权，口径差异见 README。
+    ("601158", "重庆水务", "RSI14<30", "RSI14>60", "sh",
+     {"n": 26, "win": 80.8, "total": 209.4, "stop": 10, "qfq": True,
+      "years": "2011-04 起 15.6 年"}),
 ]
 ETF_CODES = {"515080"}
 UA = {
@@ -253,6 +263,54 @@ def qt_daily(symbol, days=400):
         raise RuntimeError("腾讯日线为空")
     # 日期,开,收,高,低,量
     return [(f[0][:10], float(f[1]), float(f[2]), float(f[3]), float(f[4])) for f in kl]
+
+
+# ---------------- 前复权日线（高股息标的专用） ----------------
+# 默认一律用不复权价（与行情软件一致）。但重庆水务这类年年高分红的公用事业股，
+# 除息日不复权收盘会留下一个向下跳空，Wilder RSI 把它记成一次下跌，除息后约一个月内
+# 会虚低、报出回测里根本不存在的 RSI 买点（全历史多 36 天假超跌）。
+# 前复权序列以「最新价」为基准，最后一根收盘 = 实际收盘，因此与实时盘口价同口径：
+# 直接拿它算 RSI / BIAS / 均线 / 触发价，得到的买点价就能照着挂单，无需再做换算。
+
+def qt_daily_qfq(symbol, days=400):
+    """腾讯前复权日线（最新一根 = 实际收盘，与盘口同口径）。签名同 sina_daily。"""
+    url = ("https://web.ifzq.gtimg.cn/appstock/app/fqkline/get"
+           "?param=%s,day,,,%d,qfq" % (symbol, max(int(days), 60)))
+    js = json.loads(get(url).text)
+    d = ((js or {}).get("data") or {}).get(symbol, {})
+    kl = (d or {}).get("qfqday") or []
+    if not kl:
+        raise RuntimeError("腾讯前复权日线为空")
+    # 日期,开,收,高,低,量
+    return [(f[0][:10], float(f[1]), float(f[2]), float(f[3]), float(f[4])) for f in kl]
+
+
+def em_daily_qfq(symbol, days=400):
+    """东财前复权日线（fqt=1），口径与腾讯 qfq 一致。"""
+    secid = ("1." if symbol.startswith("sh") else "0.") + symbol[2:]
+    url = ("https://push2his.eastmoney.com/api/qt/stock/kline/get"
+           "?secid=%s&fields1=f1,f2,f3&fields2=f51,f52,f53,f54,f55"
+           "&klt=101&fqt=1&end=20500101&lmt=%d" % (secid, days))
+    js = json.loads(get(url).text)
+    kl = ((js or {}).get("data") or {}).get("klines") or []
+    if not kl:
+        raise RuntimeError("东财前复权日线为空")
+    return [(f[0][:10], float(f[1]), float(f[2]), float(f[3]), float(f[4]))
+            for f in (s.split(",") for s in kl)]
+
+
+def daily_qfq(symbol, days=400):
+    """前复权日线：腾讯 → 东财 → 新浪不复权（降级）。
+    返回 (dly, mode)：mode="qfq" 表示前复权口径，"raw" 表示已降级到不复权。"""
+    try:
+        return qt_daily_qfq(symbol, days), "qfq"
+    except Exception as e:  # noqa: BLE001
+        log("  [腾讯前复权不可用，改东财] %s" % str(e)[:60])
+    try:
+        return em_daily_qfq(symbol, days), "qfq"
+    except Exception as e:  # noqa: BLE001
+        log("  [东财前复权不可用，降级不复权] %s" % str(e)[:60])
+    return daily(symbol, days), "raw"
 
 
 _SINA_DOWN = False     # 新浪整站 403 后不再逐只重试，本轮直接走备用源
@@ -666,8 +724,14 @@ def main():
         try:
             price, high, low, prev = quote(sym)
             # 带跟踪止盈的标的要把整段历史跑一遍才能知道「持仓期最高价」，
-            # 400 根（约 1.6 年）可能不够覆盖一次完整持仓，取 700 根
-            dly = daily(sym, 700 if "峰值回撤" in sell_rule else 400)
+            # 400 根（约 1.6 年）可能不够覆盖一次完整持仓，取 700 根。
+            # 高股息票（bt.qfq）改走前复权日线，避免除息跳空污染 RSI 报出假买点。
+            need = 700 if "峰值回撤" in sell_rule else 400
+            fq_mode = ""
+            if bt.get("qfq"):
+                dly, fq_mode = daily_qfq(sym, need)
+            else:
+                dly = daily(sym, need)
             if len(dly) < 70:
                 raise RuntimeError("日线仅 %d 根" % len(dly))
             if dly[-1][0] == today:
@@ -737,13 +801,18 @@ def main():
                 "status": status,
                 "blocked": ("待大盘转空" if mkt_req == "bear" else "大盘拦") if blocked and buy_hit else "",
                 "bt": bt or None,
+                "fq": fq_mode or "raw",
                 "intraday": not final,
                 # 前端「更新」按钮做本地实时重算用：最近 300 根收盘 + 最后一根的日期
                 # （MA250 需要 251 根，130 根算不出年线）
-                # 口径与这里完全一致（不复权、含当日实时价），所以两边算出来必然相同
+                # 口径与这里完全一致（含当日实时价），所以两边算出来必然相同；
+                # 标 fq="qfq" 的行整条 hist 是前复权，前端算法不变、结果仍一致
                 "hist": [round(float(x), 3) for x in closes[-300:]],
                 "histDate": dly[-1][0],
             })
+            if fq_mode:
+                log("      口径：%s" % ("前复权日线（腾讯 qfq / 东财 fqt=1）" if fq_mode == "qfq"
+                                    else "复权源全挂，已降级不复权；除息窗口内 RSI 可能失真"))
             log("  %s %s %.2f RSI %.1f BIAS6 %+.2f 买 %s 卖 %s -> %s%s"
                 % (code, name, price, rsi, bias6,
                    ("无窗口(%s)" % nowhy) if no_win else ("%.2f" % buy_px if buy_px else "—"),

@@ -9,7 +9,9 @@ const WORKER_URL = '';
 
 /* ================== 实时重算引擎 ==================
  * 这是纯静态站，浏览器跑不了 Python。所以：「预埋历史 + 实时价 → 前端复算」
- *   · 历史：data.json 每行带 hist（最近 300 根不复权收盘）、mkt.closes（沪深300）
+ *   · 历史：data.json 每行带 hist（最近 300 根收盘）、mkt.closes（沪深300）。
+ *           绝大多数标的是不复权；标 fq="qfq" 的行（重庆水务）整条是前复权，
+ *           但前复权最后一根 = 实际收盘，所以与实时报价同口径，算法完全不用改
  *   · 实时：qt.gtimg.cn 批量报价，一次请求拿全部标的，ACAO:* 可直接跨域
  *   · 算法：逐行复刻 ci/update_ci.py 的 MA6 / BIAS6 / RSI14 Wilder /
  *           buy 闭式解 / 卖点反解 / MA60·MA250 夹逼窗口，口径完全一致
@@ -770,7 +772,11 @@ function render() {
       '<div class="rule">买 ' + r.buy_rule + ' ｜ 卖 ' + r.sell_rule +
       (r.bt ? ' ｜ ' + btText(r.bt) : '') + ma250Text(r) + trailText(r) +
       (r.bt && r.bt.mkt === 'bear' ? ' ｜ 仅大盘空头（HS300&lt;MA60）时有效'
-        : (r.bt && r.bt.mkt ? ' ｜ 仅大盘多头时有效' : '')) + '</div>' +
+        : (r.bt && r.bt.mkt ? ' ｜ 仅大盘多头时有效' : '')) +
+      (r.fq === 'qfq' ? ' ｜ <span class="nw">前复权口径</span>'
+        : (r.fq === 'raw' && r.bt && r.bt.qfq
+           ? ' ｜ <span class="warn">复权源暂不可用，按不复权计（除息窗口内 RSI 可能失真）</span>'
+           : '')) + '</div>' +
       '</div>';
   });
 
