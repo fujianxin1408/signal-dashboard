@@ -327,8 +327,13 @@ function fmt(n, d) {
 // 距买点：负=还需跌，正=已低于买点（进入买区）
 function gapBuyHtml(r) {
   if (r.nowin) {
+    // 窗口为空有两种成因，别混成一句话：
+    // ① 现价还在年线之下 → 得先涨上去，下界（年线临界价）有意义，显示 ≥
+    // ② 现价已在年线之上 → 是「再跌 3% 就破线」，下界不是买点，给了会误导
+    const above = r.buy_lo && r.price && Number(r.price) >= Number(r.buy_lo);
     const t = r.nowhy === '历史不足' ? '数据不足，待补'
-      : (/MA250上/.test(r.buy_rule) ? '站上才谈买点' : '贴线，无买点');
+      : (above ? '再跌就破年线'
+        : (/MA250上|MA60上/.test(r.buy_rule) ? '站上才谈买点' : '贴线，无买点'));
     return '<i class="gap">' + t + '</i>';
   }
   const g = (r.gap_buy === null || r.gap_buy === undefined) ? fallbackGap(r) : Number(r.gap_buy);
@@ -465,7 +470,9 @@ function cmpHeld(a, b) {
 function buyCellHtml(r) {
   if (!hasCost(r)) {
     if (r.nowin) {
-      if (r.buy_lo) return '<span class="dim">≥' + fmt(r.buy_lo) + '</span>' + gapBuyHtml(r);
+      // 现价已在年线上时，「≥下界」不是买点而是「跌到这里就破线」，不显示数字
+      const above = r.buy_lo && r.price && Number(r.price) >= Number(r.buy_lo);
+      if (r.buy_lo && !above) return '<span class="dim">≥' + fmt(r.buy_lo) + '</span>' + gapBuyHtml(r);
       return '<span class="dim">—</span>' + gapBuyHtml(r);
     }
     return fmt(r.buy) + gapBuyHtml(r);
