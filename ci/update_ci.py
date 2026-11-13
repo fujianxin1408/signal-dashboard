@@ -123,6 +123,14 @@ WATCH = [
     ("603611", "诺力股份", "MA250下 且 RSI14<45 且 BIAS6<-5.0%", "RSI14>55", "sh",
      {"n": 26, "win": 76.9, "total": 348.5, "stop": 12, "mkt": "bear",
       "years": "2016-03 起 10.7 年"}),
+    # 2026-11-13 新增：14.9 年 28 笔胜率 60.7%、累计 +1212%、年化 18.9%、回撤 38.3%。
+    # 与森马/诺力相反，它要「年线之上」的回调：去掉年线过滤年化掉到 12.7%、回撤升到 68.7%；
+    # 反过来只在年线下买只有 9.3% 年化配 58.7% 回撤，是陷阱。卖出不用 RSI（>70 只有 11.2%），
+    # 用 17% 峰值回撤跟踪止盈——2019 年 +57%、2025-04~2026-03 +80% 两笔全靠它拿满。
+    # 卖点依赖「持仓期最高价」，看板按规则从前向后模拟当前持仓状态，见 trail_pos()。
+    ("000338", "潍柴动力", "MA250上 且 RSI14<40 且 BIAS6<-2.0%", "峰值回撤17%", "sz",
+     {"n": 28, "win": 60.7, "total": 1212, "stop": 8, "trail": 17,
+      "years": "2012-01 起 14.9 年"}),
 ]
 ETF_CODES = {"515080"}
 UA = {
@@ -365,6 +373,13 @@ def parse_rule(rule):
         elif part.startswith("MA60"):
             # 趋势过滤：收盘站上 60 日均线。只作前置条件，不产生独立触发价
             conds.append(("ma60", ">" if "上" in part or ">" in part else "<", 0.0))
+        elif "峰值回撤" in part or part.upper().startswith("TRAIL"):
+            # 跟踪止盈：从持仓期最高价回撤 N% 卖出。它没有固定触发价——
+            # 卖点 = 峰值×(1−N%)，峰值要靠持仓状态算，见 trail_pos()
+            m = re.search(r"([\d.]+)\s*%", part)
+            if not m:
+                raise ValueError("无法解析: %s" % rule)
+            conds.append(("trail", "<", float(m.group(1))))
         else:
             raise ValueError("无法解析: %s" % rule)
     return conds
@@ -405,6 +420,8 @@ def critical_window(conds, closes, ma6):
     buy_side = any(c[0] in ("rsi", "bias") and c[1] == "<" for c in conds)
     pts, floors, why = [], [], ""
     for ind, op, val in conds:
+        if ind == "trail":
+            continue                  # 跟踪止盈没有固定触发价：卖点由持仓峰值决定
         if ind == "ma60":
             f = ma60_floor(closes)
         elif ind == "ma250":
@@ -450,7 +467,7 @@ def critical_price(conds, closes, ma6):
     return hi
 
 
-def hit(conds, rsi, bias6, price=None, ma60=None, ma250=None, ma250up=None):
+def hit(conds, rsi, bias6, price=None, ma60=None, ma250=None, ma250up=None, peak=None):
     ok = True
     for ind, op, val in conds:
         if ind in ("ma60", "ma250"):
@@ -465,10 +482,116 @@ def hit(conds, rsi, bias6, price=None, ma60=None, ma250=None, ma250up=None):
                 ok = False
                 break
             ok = ok and bool(ma250up)
+        elif ind == "trail":
+            if peak is None:              # 空仓没有峰值，谈不上跟踪止盈
+                ok = False
+                break
+            ok = ok and price <= peak * (1 - val / 100.0)
         else:
             cur = rsi if ind == "rsi" else bias6
             ok = ok and (cur < val if op == "<" else cur > val)
     return ok
+
+
+# ---------------- 跟踪止盈的持仓状态 ----------------
+# 卖点 = 持仓期最高价 × (1−N%)。它没有固定触发价，必须先把「按规则今天该不该持仓、
+# 该次持仓的最高价是多少」算出来，否则只能报一个「—」。
+# 口径与回测（zz_lib.run_tp）一致：信号日收盘成立、次日开盘买入；止损用盘中最低价，
+# 跟踪用盘中最高价；同一天先止损后跟踪；买入当天不判卖（T+1）。
+
+def _sma(x, n):
+    out = np.full(len(x), np.nan)
+    if len(x) >= n:
+        cs = np.concatenate(([0.0], np.cumsum(x)))
+        out[n - 1:] = (cs[n:] - cs[:-n]) / n
+    return out
+
+
+def _rsi_series(c, n=14):
+    out = np.full(len(c), np.nan)
+    if len(c) < n + 1:
+        return out
+    d = np.diff(c)
+    up = np.where(d > 0, d, 0.0)
+    dn = np.where(d < 0, -d, 0.0)
+    au, ad = up[:n].mean(), dn[:n].mean()
+    out[n] = 100.0 if ad == 0 else 100.0 - 100.0 / (1.0 + au / ad)
+    for i in range(n, len(d)):
+        au = (au * (n - 1) + up[i]) / n
+        ad = (ad * (n - 1) + dn[i]) / n
+        out[i + 1] = 100.0 if ad == 0 else 100.0 - 100.0 / (1.0 + au / ad)
+    return out
+
+
+def trail_pos(dly, buy_conds, trail, stop=None):
+    """按规则从前往后模拟，返回当前这笔持仓（None = 按规则应空仓）。
+    只用于带 trail 的标的；返回 {"in","entry","peak","peakDate"}。"""
+    n = len(dly)
+    if n < 262:
+        return None
+    c = np.array([x[2] for x in dly], dtype=float)
+    h = np.array([x[3] for x in dly], dtype=float)
+    l = np.array([x[4] for x in dly], dtype=float)
+    o = np.array([x[1] for x in dly], dtype=float)
+    ma6, ma60 = _sma(c, 6), _sma(c, 60)
+    ma250 = _sma(c, 250)
+    rsi = _rsi_series(c)
+    up250 = np.zeros(n, dtype=bool)
+    up250[270:] = ma250[270:] > ma250[250:-20]
+    bias6 = np.where(np.isnan(ma6), np.nan, (c / ma6 - 1) * 100)
+
+    def ok_at(i):
+        for ind, op, val in buy_conds:
+            if ind == "rsi":
+                v = rsi[i]
+            elif ind == "bias":
+                v = bias6[i]
+            elif ind in ("ma60", "ma250"):
+                # 均线条件比的是「收盘 vs 均线」，不是「均线 vs 0」，别和 rsi/bias 混成一类
+                line = ma60[i] if ind == "ma60" else ma250[i]
+                if np.isnan(line):
+                    return False
+                up = c[i] > line
+                if not (up if op == ">" else not up):
+                    return False
+                continue
+            elif ind == "ma250up":
+                if not up250[i]:
+                    return False
+                continue
+            else:
+                continue
+            if np.isnan(v):
+                return False
+            if not (v < val if op == "<" else v > val):
+                return False
+        return True
+
+    hold, entry, peak = False, 0.0, 0.0
+    buy_i, in_date, peak_date = -1, None, None
+    for i in range(250, n):
+        if not hold:
+            if i + 1 < n and ok_at(i):
+                hold = True
+                buy_i = i + 1
+                entry = float(o[buy_i])
+                peak = float(max(h[buy_i], entry))
+                in_date = peak_date = dly[buy_i][0]
+            continue
+        if float(h[i]) > peak:                 # 先刷新峰值（与回测顺序一致）
+            peak = float(h[i])
+            peak_date = dly[i][0]
+        if i <= buy_i:                          # T+1：买入当天不判卖
+            continue
+        if stop and float(l[i]) <= entry * (1 - stop / 100.0):
+            hold = False
+            continue
+        if float(l[i]) <= peak * (1 - trail / 100.0):
+            hold = False
+    if not hold:
+        return None
+    return {"in": in_date, "entry": round(entry, 2),
+            "peak": round(peak, 2), "peakDate": peak_date}
 
 
 # ---------------- 档位 ----------------
@@ -534,7 +657,9 @@ def main():
         sym = mkt + code
         try:
             price, high, low, prev = quote(sym)
-            dly = daily(sym, 400)
+            # 带跟踪止盈的标的要把整段历史跑一遍才能知道「持仓期最高价」，
+            # 400 根（约 1.6 年）可能不够覆盖一次完整持仓，取 700 根
+            dly = daily(sym, 700 if "峰值回撤" in sell_rule else 400)
             if len(dly) < 70:
                 raise RuntimeError("日线仅 %d 根" % len(dly))
             if dly[-1][0] == today:
@@ -556,7 +681,13 @@ def main():
             bias6 = (price / ma6 - 1) * 100
             bc, sc = parse_rule(buy_rule), parse_rule(sell_rule)
             buy_lo, buy_px, no_win, nowhy = critical_window(bc, closes, ma6)
-            sell_px = critical_price(sc, closes, ma6)
+            # 跟踪止盈：卖点不是常数，先模拟出「按规则现在是否持仓、峰值多少」
+            trail = next((c[2] for c in sc if c[0] == "trail"), None)
+            pos = trail_pos(dly, bc, trail, bt.get("stop")) if trail else None
+            if trail:
+                sell_px = round(pos["peak"] * (1 - trail / 100.0), 2) if pos else None
+            else:
+                sell_px = critical_price(sc, closes, ma6)
             # 大盘门控：True/"bull" 需要多头，"bear" 需要空头；方向由 bt.mkt 决定
             mkt_req = bt.get("mkt")
             if mkt_req == "bear":
@@ -566,7 +697,8 @@ def main():
             else:
                 blocked = False
             buy_hit = hit(bc, rsi, bias6, price, sma60, sma250, up250)
-            sell_hit = hit(sc, rsi, bias6, price, sma60, sma250, up250)
+            sell_hit = hit(sc, rsi, bias6, price, sma60, sma250, up250,
+                           pos["peak"] if pos else None)
             if buy_hit:
                 status = "wait" if blocked else "buy"
             elif sell_hit:
@@ -588,6 +720,8 @@ def main():
                 "ma250up": up250,
                 "ma250slope": None if slope250 is None else round(slope250, 2),
                 "sell": None if sell_px is None else round(sell_px, 3 if code in ETF_CODES else 2),
+                "trail": trail,
+                "pos": pos,
                 "gap_buy": None if no_win else gap(price, buy_px, "buy"),
                 "gap_sell": gap(price, sell_px, "sell"),
                 "d5": round(d5, 1),
@@ -607,6 +741,11 @@ def main():
                    ("无窗口(%s)" % nowhy) if no_win else ("%.2f" % buy_px if buy_px else "—"),
                    "%.2f" % sell_px if sell_px else "—", status,
                    " (大盘拦截)" if blocked and buy_hit else ""))
+            if trail:
+                log("      跟踪止盈 %d%%：%s"
+                    % (trail, ("自 %s 以 %.2f 持有，峰值 %.2f（%s）"
+                               % (pos["in"], pos["entry"], pos["peak"], pos["peakDate"]))
+                       if pos else "按规则当前空仓，无卖点"))
             if sma250 and "MA250" in buy_rule:
                 log("      年线 %.2f %s %.2f%%  现价距年线 %+.1f%%"
                     % (sma250, "升" if up250 else "降",

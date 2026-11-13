@@ -121,6 +121,9 @@ function parseRule(rule) {
         : ['ma250', (p.indexOf('上') >= 0 || p.indexOf('>') >= 0) ? '>' : '<', 0]);
     } else if (p.indexOf('MA60') === 0) {
       out.push(['ma60', (p.indexOf('上') >= 0 || p.indexOf('>') >= 0) ? '>' : '<', 0]);
+    } else if (p.indexOf('峰值回撤') >= 0 || p.toUpperCase().indexOf('TRAIL') === 0) {
+      const m = p.match(/([\d.]+)\s*%/);
+      if (m) out.push(['trail', '<', parseFloat(m[1])]);
     }
   });
   return out;
@@ -136,6 +139,7 @@ function critWindow(conds, c, ma6) {
   let why = '';
   for (let i = 0; i < conds.length; i++) {
     const k = conds[i];
+    if (k[0] === 'trail') continue;      // 跟踪止盈没有固定触发价，卖点另算
     let f;
     if (k[0] === 'ma60') f = ma60Floor(c);
     else if (k[0] === 'ma250') f = maFloor(c, 250);
@@ -172,6 +176,8 @@ function hitTest(conds, rsi, bias6, price, ma60, ma250, up250) {
     } else if (ind === 'ma250up') {
       if (up250 === null || up250 === undefined) return false;
       ok = !!up250;
+    } else if (ind === 'trail') {
+      return false;                      // 由 recalcRow 用持仓峰值单独判断
     } else { const cur = (ind === 'rsi') ? rsi : bias6; ok = (op === '<') ? cur < val : cur > val; }
     if (!ok) return false;
   }
@@ -185,7 +191,7 @@ function gapOf(price, ref, side) {
 }
 
 // 一行 = 预埋历史 + 今日实时价（当天已有一根就替换，否则追加）
-function recalcRow(r, price, mktBull) {
+function recalcRow(r, price, mktBull, dayHigh) {
   const h = (r.hist || []).slice();
   if (h.length < 20) return null;
   const lag = r.histDate ? (Date.parse(TODAY) - Date.parse(r.histDate)) / 864e5 : 99;
@@ -209,7 +215,24 @@ function recalcRow(r, price, mktBull) {
   const mktReq = (r.bt && r.bt.mkt) || null;
   const blocked = mktReq === 'bear' ? !!mktBull : (!!mktReq && !mktBull);
   const bHit = hitTest(bc, rsi, bias6, price, sma60, sma250, up250);
-  const sHit = hitTest(sc, rsi, bias6, price, sma60, sma250, up250);
+
+  /* 跟踪止盈：卖点 = 持仓期最高价 × (1−N%)，没有固定值。
+   * 持仓状态由后端按规则从前跑一遍得出（r.pos）；盘中创了新高就用实时最高价顶上去，
+   * 这样 17% 的基准始终是「到过哪儿」而不是「昨天收在哪」。空仓则没有卖点。 */
+  let pos = r.pos || null, sellPx = null;
+  if (r.trail) {
+    if (pos) {
+      const hi = Math.max(Number(dayHigh) || 0, price);
+      const pk = Math.max(Number(pos.peak) || 0, hi);
+      pos = { in: pos.in, entry: pos.entry, peak: Number(pk.toFixed(2)), peakDate: pos.peakDate };
+      sellPx = pk * (1 - r.trail / 100);
+    }
+  } else {
+    sellPx = sw[1];
+  }
+  const sHit = r.trail
+    ? (!!pos && price <= sellPx + 1e-9)
+    : hitTest(sc, rsi, bias6, price, sma60, sma250, up250);
 
   const o = {};
   for (const k in r) o[k] = r[k];
@@ -225,9 +248,11 @@ function recalcRow(r, price, mktBull) {
   o.buy_lo = (bw[0] === null) ? null : Number(bw[0].toFixed(dec));
   o.nowin = !!bw[2];
   o.nowhy = bw[3] || '';
-  o.sell = (sw[1] === null) ? null : Number(sw[1].toFixed(dec));
+  o.sell = (sellPx === null) ? null : Number(sellPx.toFixed(dec));
+  o.trail = r.trail || null;
+  o.pos = pos;
   o.gap_buy = bw[2] ? null : gapOf(price, bw[1], 'buy');
-  o.gap_sell = gapOf(price, sw[1], 'sell');
+  o.gap_sell = gapOf(price, sellPx, 'sell');
   o.d5 = Number((((price / h[h.length - 6]) - 1) * 100).toFixed(1));
   o.status = bHit ? (blocked ? 'wait' : 'buy') : (sHit ? 'sell' : 'wait');
   o.blocked = (blocked && bHit) ? (mktReq === 'bear' ? '待大盘转空' : '大盘拦') : '';
@@ -302,7 +327,8 @@ function fmt(n, d) {
 // 距买点：负=还需跌，正=已低于买点（进入买区）
 function gapBuyHtml(r) {
   if (r.nowin) {
-    const t = r.nowhy === '历史不足' ? '数据不足，待补' : '贴线，无买点';
+    const t = r.nowhy === '历史不足' ? '数据不足，待补'
+      : (/MA250上/.test(r.buy_rule) ? '站上才谈买点' : '贴线，无买点');
     return '<i class="gap">' + t + '</i>';
   }
   const g = (r.gap_buy === null || r.gap_buy === undefined) ? fallbackGap(r) : Number(r.gap_buy);
@@ -349,6 +375,17 @@ function ma250Text(r) {
   s += '</span> <span class="nw">现价距年线 <b class="' + (d >= 0 ? 'up' : 'down') + '">' +
     (d >= 0 ? '+' : '') + d.toFixed(1) + '%</b></span>';
   return s;
+}
+
+// 跟踪止盈说明：卖点不是常数，得说清它怎么来的，否则「—」会被当成坏了
+function trailText(r) {
+  if (!r.trail) return '';
+  const pct = (1 - r.trail / 100).toFixed(2);
+  if (r.pos) {
+    return ' ｜ <span class="nw">卖点＝峰值 ' + fmt(r.pos.peak) + '（' + r.pos.peakDate + '）× ' +
+      pct + '，创新高会自动上移</span>';
+  }
+  return ' ｜ <span class="nw">按规则当前空仓：没有峰值就没有卖点</span>';
 }
 
 /* ================== 持仓成本 ==================
@@ -423,8 +460,16 @@ function cmpHeld(a, b) {
 }
 
 // 第 5 列：未持仓 → 买点 + 距买点；持仓 → 止损价 + 距止损（不再出现买入价）
+// 夹逼区间为空（年线在上、超跌价在下）时没有买点，但年线下界仍有意义：
+// 它告诉你「至少要站上哪个价」，比一个光秃秃的「—」有用
 function buyCellHtml(r) {
-  if (!hasCost(r)) return (r.nowin ? '—' : fmt(r.buy)) + gapBuyHtml(r);
+  if (!hasCost(r)) {
+    if (r.nowin) {
+      if (r.buy_lo) return '<span class="dim">≥' + fmt(r.buy_lo) + '</span>' + gapBuyHtml(r);
+      return '<span class="dim">—</span>' + gapBuyHtml(r);
+    }
+    return fmt(r.buy) + gapBuyHtml(r);
+  }
   var s = stopInfo(r);
   if (!s) return '<span class="mini-row"><i class="mini m-stop">止损</i><b>未设</b></span>';
   var tip = s.breached ? '已跌破' : '再跌 ' + Math.abs(s.dist).toFixed(1) + '%';
@@ -435,7 +480,15 @@ function buyCellHtml(r) {
 }
 
 // 卖点列：持仓时加「卖出」标签并加粗，未持仓保持原样
+// 跟踪止盈的票空仓时没有峰值，也就没有卖点，别拿一个 0 或 — 糊过去
 function sellCellHtml(r) {
+  if (!r.sell) {
+    if (r.trail) {
+      return hasCost(r)
+        ? '<span class="mini-row"><i class="mini m-sell">卖出</i><b>—</b></span><i class="gap">缺持仓峰值</i>'
+        : '<span class="dim">—</span><i class="gap">空仓，无卖点</i>';
+    }
+  }
   if (!hasCost(r)) return fmt(r.sell) + gapSellHtml(r);
   return '<span class="mini-row"><i class="mini m-sell">卖出</i><b>' + fmt(r.sell) +
     '</b></span>' + gapSellHtml(r);
@@ -478,12 +531,13 @@ function posInner(r) {
        : (gSell > -0.05 ? '正好触价' : '还需涨 ' + Math.abs(gSell).toFixed(1) + '%'));
   var s = stopInfo(r);
   var soldOut = gSell !== null && gSell > 0.05;
+  var sellEm = sellPx ? sellTip : (r.trail ? '需持仓峰值' : '');
   var out = [];
 
   // 第一行：卖出价、止损价两个放大色块 + 醒目提示
   out.push('<span class="posline-top">' +
     '<span class="kpi k-sell' + (soldOut ? ' hit' : '') + '"><i>卖出</i><b>' +
-    (sellPx ? fmt(sellPx) : '—') + '</b>' + (sellTip ? '<em>' + sellTip + '</em>' : '') + '</span>' +
+    (sellPx ? fmt(sellPx) : '—') + '</b>' + (sellEm ? '<em>' + sellEm + '</em>' : '') + '</span>' +
     '<span class="kpi k-stop' + (s && s.breached ? ' breach' : '') + '"><i>' +
     (s && s.kind === 'ma60' ? '风控' : '止损') + '</i><b>' + (s ? fmt(s.px) : '未设') + '</b>' +
     (s ? '<em>' + (s.breached ? '已跌破，按纪律走' : '再跌 ' + Math.abs(s.dist).toFixed(1) + '%') + '</em>'
@@ -707,7 +761,7 @@ function render() {
       (posCost(r.code) ? posCost(r.code) : '') + '"></div>' +
       '<div class="posline">' + posInner(r) + '</div>' +
       '<div class="rule">买 ' + r.buy_rule + ' ｜ 卖 ' + r.sell_rule +
-      (r.bt ? ' ｜ ' + btText(r.bt) : '') + ma250Text(r) +
+      (r.bt ? ' ｜ ' + btText(r.bt) : '') + ma250Text(r) + trailText(r) +
       (r.bt && r.bt.mkt === 'bear' ? ' ｜ 仅大盘空头（HS300&lt;MA60）时有效'
         : (r.bt && r.bt.mkt ? ' ｜ 仅大盘多头时有效' : '')) + '</div>' +
       '</div>';
@@ -757,7 +811,7 @@ async function refreshLive(opts) {
     rows0.forEach(function (r) {
       const quote = q[r.sym];
       if (!quote) { out.push(r); return; }
-      const nr = recalcRow(r, quote.price, bull);
+      const nr = recalcRow(r, quote.price, bull, quote.high);
       if (nr) {
         out.push(nr); ok++;
         if (quote.t) LAST_TS = quote.t;
