@@ -369,10 +369,11 @@ function sortRows(rows) {
     ((r.gap_buy === null || r.gap_buy === undefined)
       ? fallbackGap(r) : Number(r.gap_buy));
   return rows.slice().sort((a, b) => {
-    const ra = rank[a.status] ?? 3, rb = rank[b.status] ?? 3;
+    const sa = effStatus(a), sb = effStatus(b);
+    const ra = rank[sa] ?? 3, rb = rank[sb] ?? 3;
     if (ra !== rb) return ra - rb;
-    if (a.status === 'buy') return gb(b) - gb(a);           // 突破买点的幅度越大越靠前
-    if (a.status === 'sell') return (Number(b.gap_sell) || 0) - (Number(a.gap_sell) || 0);
+    if (sa === 'buy') return gb(b) - gb(a);           // 突破买点的幅度越大越靠前
+    if (sa === 'sell') return (Number(b.gap_sell) || 0) - (Number(a.gap_sell) || 0);
     return gb(b) - gb(a);                                    // 等待中：最接近买点的靠前
   });
 }
@@ -514,6 +515,12 @@ function money(v) {
  */
 function hasCost(r) { return posCost(r.code) > 0 && Number(r.price) > 0; }
 
+// 空仓的票没有股可卖：后端按规则算出的「卖出」对空仓只是一个已失效的历史信号，
+// 不该在页面上提醒。统一按观察处理——不显示卖出标签、不计入卖出数、不标红。
+function effStatus(r) {
+  return (!hasCost(r) && r.status === 'sell') ? 'wait' : r.status;
+}
+
 // 风控价：优先回测硬止损 bt.stop；没有硬止损的票（如中国平安）沿用 MA60 趋势线
 function stopInfo(r) {
   var cost = posCost(r.code), px = Number(r.price);
@@ -572,9 +579,13 @@ function sellCellHtml(r) {
   }
   const dyn = r.selldyn ? '<i class="gap dyn" title="卖点 = ' + r.selldyn +
     ' 当日值，逐日滚动，不是固定价">' + r.selldyn + '</i>' : '';
+  // 空仓：卖点只作规则参考，淡显、不给「已超 / 还需涨」提醒——没股可卖就别催卖
+  if (!hasCost(r)) {
+    return '<span class="dimref" title="空仓，无需卖出；此处仅列出该规则的卖点作参考">' +
+      fmt(r.sell) + '</span>' + dyn;
+  }
   // 数字与线名同排（.px2 是 flex column，直接排会各占一行、把「已超 x%」挤到第三行）
   const num = '<span class="sellnum">' + fmt(r.sell) + dyn + '</span>';
-  if (!hasCost(r)) return num + gapSellHtml(r);
   return '<span class="mini-row"><i class="mini m-sell">卖出</i>' + num +
     '</span>' + gapSellHtml(r);
 }
@@ -779,8 +790,10 @@ function render() {
     return;
   }
 
-  const c = slot.counts || {};
-  const hitN = (c.buy || 0) + (c.sell || 0);
+  // 计数自己重算：空仓票的「卖出」不算，否则页头会提示一堆无股可卖的卖出信号
+  const cc = { buy: 0, sell: 0, wait: 0 };
+  slot.rows.forEach(function (r) { const s = effStatus(r); cc[s] = (cc[s] || 0) + 1; });
+  const hitN = (cc.buy || 0) + (cc.sell || 0);
   let stamp = slot.ts || '';
   if (slot.target && slot.ts && slot.ts !== slot.target) {
     const sk = (slot.skew === null || slot.skew === undefined) ? null : Number(slot.skew);
@@ -799,8 +812,9 @@ function render() {
   const rows = heldRows.concat(sorted.filter(function (r) { return !hasCost(r); }));
 
   const tagOf = r => {
-    if (r.status === 'buy') return '<span class="tag t-buy">买入</span>';
-    if (r.status === 'sell') return '<span class="tag t-sell">卖出</span>';
+    const st = effStatus(r);
+    if (st === 'buy') return '<span class="tag t-buy">买入</span>';
+    if (st === 'sell') return '<span class="tag t-sell">卖出</span>';
     return '<span class="tag t-wait">等待</span>' +
       (r.blocked ? '<span class="tag t-blk">' + r.blocked + '</span>' : '');
   };
@@ -808,9 +822,9 @@ function render() {
   let html =
     '<div class="card">' +
     '<div class="bar"><div class="barl">' +
-    '<span>买入 <b class="c-buy">' + (c.buy || 0) + '</b></span>' +
-    '<span>卖出 <b class="c-sell">' + (c.sell || 0) + '</b></span>' +
-    '<span>等待 <b class="c-wait">' + (c.wait || 0) + '</b></span>' +
+    '<span>买入 <b class="c-buy">' + (cc.buy || 0) + '</b></span>' +
+    '<span>卖出 <b class="c-sell">' + (cc.sell || 0) + '</b></span>' +
+    '<span>等待 <b class="c-wait">' + (cc.wait || 0) + '</b></span>' +
     '<span>持仓 <b class="c-held">' + heldRows.length + '</b></span>' +
     '</div><div class="barr">' + stamp + ' · 共 ' + slot.rows.length + ' 只' +
     (hitN ? ' · 触发 ' + hitN : '') + '</div></div>' +
@@ -820,26 +834,27 @@ function render() {
 
   let lastKey = null;
   const grpCnt = {};
-  rows.forEach(r => { if (!hasCost(r)) grpCnt[r.status] = (grpCnt[r.status] || 0) + 1; });
+  rows.forEach(r => { if (!hasCost(r)) { const s = effStatus(r); grpCnt[s] = (grpCnt[s] || 0) + 1; } });
   ROWREF = {};
   rows.forEach(r => {
     ROWREF[r.code] = r;
     const held = hasCost(r);
-    const key = held ? 'held' : r.status;
+    const st = effStatus(r);
+    const key = held ? 'held' : st;
     if (key !== lastKey) {
       if (held) {
         html += '<div class="sep s-held">我的持仓 <span class="cnt">· ' + heldRows.length + ' 只</span>' +
           '<span class="hsum" id="heldSum">' + heldSummaryHtml(heldRows) + '</span>' +
           '<button type="button" class="clrall">清空全部</button></div>';
       } else {
-        const t = { buy: '买入触发', sell: '卖出触发', wait: '其余观察' }[r.status];
-        html += '<div class="sep s-' + r.status + '">' + t +
-          ' <span class="cnt">· ' + (grpCnt[r.status] || 0) + ' 只</span></div>';
+        const t = { buy: '买入触发', sell: '卖出触发', wait: '其余观察' }[st];
+        html += '<div class="sep s-' + st + '">' + t +
+          ' <span class="cnt">· ' + (grpCnt[st] || 0) + ' 只</span></div>';
       }
       lastKey = key;
     }
     html +=
-      '<div class="row s-' + r.status + (held ? ' held' : '') +
+      '<div class="row s-' + st + (held ? ' held' : '') +
       (isBreached(r) ? ' breached' : '') + '">' +
       '<div class="name">' + r.name + '<span class="code">' + r.code + '</span></div>' +
       '<div class="px">' + fmt(r.price) + '</div>' +
