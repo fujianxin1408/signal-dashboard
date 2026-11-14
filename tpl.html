@@ -12,87 +12,87 @@ body{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei
 /* ---------- 页头 ---------- */
 .head{background:#fff;border-radius:12px;padding:14px 18px 12px;margin-bottom:10px;box-shadow:0 1px 3px rgba(0,0,0,.05)}
 .h1row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
-h1{font-size:17px;font-weight:600;letter-spacing:.4px}
-.badge{display:inline-block;padding:2px 9px;border-radius:5px;font-size:12px;font-weight:500}
+h1{font-size:18px;font-weight:600;letter-spacing:.4px}
+.badge{display:inline-block;padding:2px 9px;border-radius:5px;font-size:12.5px;font-weight:500}
 .bull{background:#fde8e8;color:#c0392b}
 .bear{background:#e8f5e9;color:#2e7d32}
-.auto{font-size:11.5px;color:#0a8f5b;background:rgba(10,143,91,.08);padding:2px 8px;border-radius:5px;cursor:pointer;user-select:none;white-space:nowrap;font-variant-numeric:tabular-nums;margin-left:auto}
+.auto{font-size:12px;color:#0a8f5b;background:rgba(10,143,91,.08);padding:2px 8px;border-radius:5px;cursor:pointer;user-select:none;white-space:nowrap;font-variant-numeric:tabular-nums;margin-left:auto}
 .auto.off{color:#999;background:rgba(0,0,0,.05)}
 .auto.idle{color:#aaa;background:transparent;cursor:default}
-.meta{font-size:12.5px;color:#8a8f98;display:flex;flex-wrap:wrap;gap:4px 14px;align-items:center;margin-top:6px;font-variant-numeric:tabular-nums}
+.meta{font-size:13px;color:#8a8f98;display:flex;flex-wrap:wrap;gap:4px 14px;align-items:center;margin-top:6px;font-variant-numeric:tabular-nums}
 .tabs{display:flex;gap:6px;margin:10px 0 2px;overflow-x:auto;overflow-y:hidden;padding-bottom:2px;scrollbar-width:none}
 .tabs::-webkit-scrollbar{display:none}
-.tab{padding:5px 12px;border-radius:6px;background:#fff;border:1px solid #e3e4e8;cursor:pointer;font-size:12.5px;color:#666;white-space:nowrap;flex:0 0 auto;font-variant-numeric:tabular-nums}
+.tab{padding:5px 12px;border-radius:6px;background:#fff;border:1px solid #e3e4e8;cursor:pointer;font-size:13px;color:#666;white-space:nowrap;flex:0 0 auto;font-variant-numeric:tabular-nums}
 .tab.on{background:#1a1a1a;color:#fff;border-color:#1a1a1a}
 .tab.off{opacity:.4;cursor:default}
 .tab.tab-live{background:#0a8f5b;color:#fff;border-color:#0a8f5b;font-weight:600;cursor:pointer}
 .tab.tab-live.on{background:#086e46;border-color:#086e46}
 .tab.tab-live.busy{opacity:.65;pointer-events:none}
-.tabts{font-size:10.5px;opacity:.65;margin-left:5px}
+.tabts{font-size:11px;opacity:.65;margin-left:5px}
 
 /* ---------- 说明（默认收起） ---------- */
 details.legend{margin-top:9px;border-top:1px dashed #ebebee;padding-top:7px}
-details.legend summary{cursor:pointer;color:#8a8f98;font-size:11.5px;user-select:none;list-style:none}
+details.legend summary{cursor:pointer;color:#8a8f98;font-size:12px;user-select:none;list-style:none}
 details.legend summary::-webkit-details-marker{display:none}
 details.legend summary::before{content:'▸ ';font-size:10px}
 details.legend[open] summary::before{content:'▾ '}
-.legend .lg{margin-top:5px;font-size:11.5px;color:#9a9ea6;line-height:1.8}
+.legend .lg{margin-top:5px;font-size:12.5px;color:#9a9ea6;line-height:1.8}
 .legend .lg b{color:#666;font-weight:600}
 
 /* ---------- 表格卡 ---------- */
 .card{background:#fff;border-radius:12px;box-shadow:0 1px 3px rgba(0,0,0,.05);overflow:hidden}
 .bar{display:flex;align-items:center;justify-content:space-between;gap:8px 14px;padding:9px 14px;background:#fcfcfd;border-bottom:1px solid #f0f0f2;flex-wrap:wrap}
-.barl{display:flex;gap:14px;font-size:12px;color:#8a8f98}
-.barl b{font-size:14px;font-variant-numeric:tabular-nums}
+.barl{display:flex;gap:14px;font-size:13px;color:#8a8f98}
+.barl b{font-size:15.5px;font-variant-numeric:tabular-nums}
 .c-buy{color:#c0392b}.c-sell{color:#2e7d32}.c-wait{color:#9a9ea6}
-.barr{font-size:11.5px;color:#b0b3ba;font-variant-numeric:tabular-nums}
-.row{display:grid;grid-template-columns:1.5fr .75fr .6fr .7fr 1.02fr 1.02fr .7fr .85fr;gap:8px;padding:8px 14px;align-items:center;font-size:13px;border-bottom:1px solid #f2f2f4}
+.barr{font-size:12.5px;color:#b0b3ba;font-variant-numeric:tabular-nums}
+.row{display:grid;grid-template-columns:1.5fr .75fr .6fr .7fr 1.02fr 1.02fr .7fr .85fr;gap:8px;padding:10px 14px;align-items:center;font-size:15px;border-bottom:1px solid #f2f2f4}
 .row:last-child{border-bottom:none}
 .row:hover{background:#fafbfd}
-.row.hd{background:#fafafb;color:#8a8f98;font-size:11.5px;font-weight:500;padding:7px 14px;position:sticky;top:0;z-index:2}
+.row.hd{background:#fafafb;color:#7d828b;font-size:13px;font-weight:500;padding:7px 14px;position:sticky;top:0;z-index:2}
 .row.hd:hover{background:#fafafb}
 .name{font-weight:500;display:flex;align-items:baseline;gap:6px;flex-wrap:wrap;min-width:0}
-.code{font-size:10.5px;color:#b0b3ba;font-weight:400;font-variant-numeric:tabular-nums}
-.px{font-variant-numeric:tabular-nums;font-weight:500;text-align:right}
+.code{font-size:11.5px;color:#b0b3ba;font-weight:400;font-variant-numeric:tabular-nums}
+.px{font-variant-numeric:tabular-nums;font-weight:600;font-size:16px;text-align:right}
 .num{font-variant-numeric:tabular-nums;color:#555;text-align:right}
 .px2{font-variant-numeric:tabular-nums;font-weight:500;display:flex;flex-direction:column;align-items:flex-end;line-height:1.3;text-align:right}
-.gap{font-style:normal;font-size:10.5px;color:#b0b3ba;font-weight:400}
+.gap{font-style:normal;font-size:12px;color:#b0b3ba;font-weight:400}
 .gap.pos{color:#c0392b;font-weight:600}
 .gap.near{color:#b26a00;font-weight:600}
 .gap.sell{color:#2e7d32}
 /* 动态卖点标记（如 MA60）：卖点随均线逐日滚动，不是可挂单的固定价 */
 .gap.dyn{display:inline-block;margin-left:3px;padding:0 3px;border:1px solid #c9ccd4;
-  border-radius:3px;font-size:9.5px;color:#8b8f99;letter-spacing:.3px;vertical-align:1px}
+  border-radius:3px;font-size:10.5px;color:#8b8f99;letter-spacing:.3px;vertical-align:1px}
 .sellnum{display:inline-flex;align-items:center;justify-content:flex-end;gap:1px}
 .sg{display:flex;flex-wrap:wrap;gap:4px;align-items:center;justify-content:flex-end}
-.tag{display:inline-block;padding:1px 7px;border-radius:4px;font-size:11px;font-weight:500}
+.tag{display:inline-block;padding:1px 7px;border-radius:4px;font-size:12px;font-weight:500}
 .t-buy{background:#fde8e8;color:#c0392b}
 .t-sell{background:#e8f5e9;color:#2e7d32}
 .t-wait{background:#f0f0f2;color:#989ca3}
-.t-blk{background:#fff4e0;color:#b26a00;font-size:10px}
+.t-blk{background:#fff4e0;color:#b26a00;font-size:11px}
 .row.s-buy{background:#fdf6f5;box-shadow:inset 3px 0 0 #c0392b}
 .row.s-sell{background:#f4faf5;box-shadow:inset 3px 0 0 #2e7d32}
 .row.s-buy .px{color:#c0392b;font-weight:600}
 .row.s-sell .px{color:#2e7d32;font-weight:600}
-.rule{font-size:10.5px;color:#b8bac0;grid-column:1/-1;margin-top:-2px;padding-bottom:1px;min-width:0;overflow-wrap:anywhere;line-height:1.6}
+.rule{font-size:12px;color:#b8bac0;grid-column:1/-1;margin-top:-2px;padding-bottom:1px;min-width:0;overflow-wrap:anywhere;line-height:1.6}
 .row>div{min-width:0}
-.pin{width:100%;box-sizing:border-box;border:1px solid #e6e7ea;border-radius:5px;background:#fcfcfd;padding:3px 7px;font-size:12px;text-align:right;color:#333;font-variant-numeric:tabular-nums;font-family:inherit}
+.pin{width:100%;box-sizing:border-box;border:1px solid #e6e7ea;border-radius:5px;background:#fcfcfd;padding:3px 7px;font-size:13px;text-align:right;color:#333;font-variant-numeric:tabular-nums;font-family:inherit}
 .pin:focus{outline:none;border-color:#0a8f5b;background:#fff}
-.pin::placeholder{color:#c8cad0;font-size:11px;text-align:center}
-.posline{grid-column:1/-1;font-size:11px;color:#777;background:#f8f9fa;border-left:2px solid #e0e2e6;padding:4px 10px;margin:2px 0 3px;border-radius:0 5px 5px 0;line-height:1.7;overflow-wrap:anywhere}
+.pin::placeholder{color:#c8cad0;font-size:12px;text-align:center}
+.posline{grid-column:1/-1;font-size:12px;color:#777;background:#f8f9fa;border-left:2px solid #e0e2e6;padding:4px 10px;margin:2px 0 3px;border-radius:0 5px 5px 0;line-height:1.7;overflow-wrap:anywhere}
 .posline:empty{display:none}
 .posline b{font-variant-numeric:tabular-nums;font-weight:600}
 .posline .dim{color:#aaa}
 /* ---- 持仓视图：卖出 / 止损放大置顶 ---- */
 .posline .kpi{display:inline-flex;align-items:baseline;gap:5px;padding:2px 9px;margin:2px 7px 2px 0;border-radius:4px;white-space:nowrap;vertical-align:middle}
-.posline .kpi i{font-style:normal;font-size:10px;opacity:.8}
-.posline .kpi b{font-size:14px;font-weight:700}
-.posline .kpi em{font-style:normal;font-size:10.5px;opacity:.85}
+.posline .kpi i{font-style:normal;font-size:11px;opacity:.8}
+.posline .kpi b{font-size:15px;font-weight:700}
+.posline .kpi em{font-style:normal;font-size:11.5px;opacity:.85}
 .posline .k-sell{background:#e8f5e9;color:#2e7d32}
 .posline .k-stop{background:#fff4e0;color:#b26a00}
 .posline .posmeta{display:inline-block;color:#888;vertical-align:middle}
 .mini-row{display:inline-flex;align-items:baseline;gap:4px}
-.mini{font-style:normal;font-size:9.5px;font-weight:600;padding:0 4px;border-radius:3px;letter-spacing:.2px}
+.mini{font-style:normal;font-size:10.5px;font-weight:600;padding:0 4px;border-radius:3px;letter-spacing:.2px}
 .mini.m-stop{background:#fff4e0;color:#b26a00}
 .mini.m-sell{background:#e8f5e9;color:#2e7d32}
 .row.held .buycol b,.row.held .sellcol b{font-weight:700}
@@ -105,19 +105,19 @@ details.legend[open] summary::before{content:'▾ '}
 .sep.s-held::before{background:#0a8f5b}
 .sep .hsum{margin-left:8px;color:#8a8f98;font-weight:400;letter-spacing:0;font-variant-numeric:tabular-nums}
 .sep .hsum b{font-weight:600}
-.sep .clrall,.posline .clrrow{background:none;border:1px solid #e2e4e8;color:#9a9ea6;font-size:10.5px;border-radius:4px;padding:1px 7px;cursor:pointer;font-family:inherit;white-space:nowrap}
+.sep .clrall,.posline .clrrow{background:none;border:1px solid #e2e4e8;color:#9a9ea6;font-size:11.5px;border-radius:4px;padding:1px 7px;cursor:pointer;font-family:inherit;white-space:nowrap}
 .sep .clrall{margin-left:auto}
 .posline .clrrow{margin-left:8px}
 .sep .clrall:hover,.posline .clrrow:hover{border-color:#c0392b;color:#c0392b}
 .posline-top,.posline-bot{display:block}
 .posline-bot{margin-top:2px}
-.posline .warn{display:inline-block;background:#fde8e8;color:#c0392b;font-size:10.5px;font-weight:600;padding:1px 8px;border-radius:4px;vertical-align:middle}
+.posline .warn{display:inline-block;background:#fde8e8;color:#c0392b;font-size:11.5px;font-weight:600;padding:1px 8px;border-radius:4px;vertical-align:middle}
 .posline .warn.sell{background:#e8f5e9;color:#2e7d32}
 .posline .kpi.hit{background:#dcefe0;color:#1b6b34}
 .posline .kpi.breach{background:#fde8e8;color:#c0392b}
 .posline .posact{display:inline-flex;align-items:center;gap:6px;margin-left:10px;padding-left:10px;border-left:1px solid #e0e2e6;vertical-align:middle}
 .posline .qbox{display:inline-flex;align-items:center;gap:4px;color:#888;vertical-align:middle}
-.qin{width:64px;box-sizing:border-box;border:1px solid #e6e7ea;border-radius:4px;background:#fff;padding:1px 6px;font-size:11px;text-align:right;color:#333;font-variant-numeric:tabular-nums;font-family:inherit}
+.qin{width:64px;box-sizing:border-box;border:1px solid #e6e7ea;border-radius:4px;background:#fff;padding:1px 6px;font-size:12px;text-align:right;color:#333;font-variant-numeric:tabular-nums;font-family:inherit}
 .qin:focus{outline:none;border-color:#0a8f5b}
 .qin::placeholder{color:#c8cad0}
 .posline .money{font-variant-numeric:tabular-nums;font-weight:600}
@@ -125,7 +125,7 @@ details.legend[open] summary::before{content:'▾ '}
 
 .nw{white-space:nowrap}
 .up{color:#c0392b}.down{color:#2e7d32}
-.sep{display:flex;align-items:center;gap:7px;font-size:11px;color:#8a8f98;padding:7px 14px 5px;letter-spacing:.4px;background:#fcfcfd;border-bottom:1px solid #f0f0f2;font-weight:500}
+.sep{display:flex;align-items:center;gap:7px;font-size:12px;color:#8a8f98;padding:7px 14px 5px;letter-spacing:.4px;background:#fcfcfd;border-bottom:1px solid #f0f0f2;font-weight:500}
 .sep::before{content:'';width:3px;height:11px;border-radius:2px;background:#d5d7dc;flex:0 0 auto}
 .sep.s-buy{color:#c0392b}.sep.s-buy::before{background:#c0392b}
 .sep.s-sell{color:#2e7d32}.sep.s-sell::before{background:#2e7d32}
@@ -133,23 +133,23 @@ details.legend[open] summary::before{content:'▾ '}
 @media(max-width:720px){
  body{padding:10px 10px 16px}
  .head{padding:12px 14px 10px}
- .row{grid-template-columns:1.5fr .82fr 1.2fr .82fr;font-size:12.5px;padding:9px 12px;gap:6px}
+ .row{grid-template-columns:1.5fr .82fr 1.2fr .82fr;font-size:14px;padding:10px 12px;gap:6px}
  .row.hd{display:none;position:static}
  .hide-m{display:none}
  .rule{display:none}
  .pcell{grid-column:1/-1;margin:2px 0}
- .pin{text-align:left;padding:5px 8px;font-size:13px}
+ .pin{text-align:left;padding:6px 8px;font-size:14px}
  .pin::placeholder{text-align:left}
  .tabts{display:none}
  .bar{padding:8px 12px}
- .legend .lg{font-size:11px}
+ .legend .lg{font-size:12px}
  .sep{flex-wrap:wrap}
  .sep .hsum{flex-basis:100%;margin:2px 0 0 10px}
  .sep .clrall{margin-left:auto}
  .posline .posact{margin-left:0;padding-left:0;border-left:none;margin-top:5px}
 }
-.foot{text-align:center;font-size:11px;color:#b0b3ba;padding:18px 0 4px}
-#toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);background:rgba(26,26,26,.92);color:#fff;font-size:12.5px;padding:9px 15px;border-radius:8px;opacity:0;transition:opacity .25s;pointer-events:none;z-index:99;white-space:nowrap;max-width:88vw;overflow:hidden;text-overflow:ellipsis}
+.foot{text-align:center;font-size:12px;color:#b0b3ba;padding:18px 0 4px}
+#toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);background:rgba(26,26,26,.92);color:#fff;font-size:13px;padding:9px 15px;border-radius:8px;opacity:0;transition:opacity .25s;pointer-events:none;z-index:99;white-space:nowrap;max-width:88vw;overflow:hidden;text-overflow:ellipsis}
 </style>
 </head>
 <body>
