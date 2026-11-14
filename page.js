@@ -784,8 +784,14 @@ function render() {
   let stamp = slot.ts || '';
   if (slot.target && slot.ts && slot.ts !== slot.target) {
     const sk = (slot.skew === null || slot.skew === undefined) ? null : Number(slot.skew);
-    stamp = slot.target + ' 档 · 实际 ' + slot.ts + ' 生成' +
-      (sk === null ? '' : '（' + (sk > 0 ? '延迟 ' : '提前 ') + Math.abs(sk) + ' 分）');
+    // 跨交易日（周末/节假日）不能再说「延迟 X 分」：那是按当天钟点算的差，
+    // 隔一天看就会变成「延迟 76 分」这种明显错的读数，直接标成哪天的收盘档
+    if (D.date && D.date !== TODAY) {
+      stamp = slot.target + ' 档 · ' + D.date + ' 收盘';
+    } else {
+      stamp = slot.target + ' 档 · 实际 ' + slot.ts + ' 生成' +
+        (sk === null ? '' : '（' + (sk > 0 ? '延迟 ' : '提前 ') + Math.abs(sk) + ' 分）');
+    }
   }
 
   const sorted = sortRows(slot.rows);
