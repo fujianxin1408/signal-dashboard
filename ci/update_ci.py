@@ -149,6 +149,19 @@ WATCH = [
     ("601158", "重庆水务", "RSI14<30", "RSI14>60", "sh",
      {"n": 26, "win": 80.8, "total": 209.4, "stop": 10, "qfq": True,
       "years": "2011-04 起 15.6 年"}),
+    # 2026-11-14 新增：16.6 年 31 笔胜率 77.4%、累计 +624.3%、年化 12.7%、回撤 27.9%，
+    # 同期买入持有 +39.9%（年化 2.0%）。周期股（白羽鸡），所有趋势/追涨规则全亏。
+    # 关键是 BIAS6<-7%（跌急了），不是「跌多了」：2024 年腰斩到 9.98，
+    # 但那是 18 个月慢跌、BIAS6 最深只有 -6.27%，全年零交易。
+    # 2022-06 至今 BIAS6 破 -7% 只有 1 天（2026-03-23 的 -7.73%）。
+    # 放宽到 -6% 回撤从 27.9% 飙到 48.4%，多出的 15 笔全是阴跌里过早接刀。
+    # 止损越紧亏越多：8% 年化 10.1%、10% 只剩 5.6%、15% 是 12.7%。
+    # 2023/2024/2025 连续三年零交易，近年分段年化仅 2.2%，别按 12.7% 预期。
+    # 15 次除息累计 6.76 元、单次跳空中位 -2.75%，不复权会多 9 天假买点
+    # （不复权重跑 33 笔、年化 10.7%、回撤 39.4%），故同样走前复权（bt.qfq=True）。
+    ("002299", "圣农发展", "RSI14<50 且 BIAS6<-7.0%", "RSI14>55", "sz",
+     {"n": 31, "win": 77.4, "total": 624.3, "stop": 15, "qfq": True, "buySim": 5,
+      "years": "2010-04 起 16.6 年"}),
 ]
 ETF_CODES = {"515080"}
 UA = {
@@ -272,17 +285,36 @@ def qt_daily(symbol, days=400):
 # 前复权序列以「最新价」为基准，最后一根收盘 = 实际收盘，因此与实时盘口价同口径：
 # 直接拿它算 RSI / BIAS / 均线 / 触发价，得到的买点价就能照着挂单，无需再做换算。
 
+# 腾讯前复权的两个入口，同一份数据、不同的前置层：
+# web.ifzq 有时会吐一段 JS 反爬挑战页（HTTP 501），proxy.finance 没有那层拦截。
+_QT_FQ_HOSTS = (
+    "https://web.ifzq.gtimg.cn/appstock/app/fqkline/get",
+    "https://proxy.finance.qq.com/ifzqgtimg/appstock/app/newfqkline/get",
+)
+
+
 def qt_daily_qfq(symbol, days=400):
     """腾讯前复权日线（最新一根 = 实际收盘，与盘口同口径）。签名同 sina_daily。"""
-    url = ("https://web.ifzq.gtimg.cn/appstock/app/fqkline/get"
-           "?param=%s,day,,,%d,qfq" % (symbol, max(int(days), 60)))
-    js = json.loads(get(url).text)
-    d = ((js or {}).get("data") or {}).get(symbol, {})
-    kl = (d or {}).get("qfqday") or []
-    if not kl:
-        raise RuntimeError("腾讯前复权日线为空")
-    # 日期,开,收,高,低,量
-    return [(f[0][:10], float(f[1]), float(f[2]), float(f[3]), float(f[4])) for f in kl]
+    last = None
+    for base in _QT_FQ_HOSTS:
+        url = "%s?param=%s,day,,,%d,qfq" % (base, symbol, max(int(days), 60))
+        try:
+            txt = get(url, tries=2).text
+            if not txt.lstrip().startswith("{"):
+                raise RuntimeError("非 JSON 应答（反爬挑战页）")
+            js = json.loads(txt)
+            d = ((js or {}).get("data") or {}).get(symbol, {})
+            kl = (d or {}).get("qfqday") or (d or {}).get("day") or []
+            if not kl:
+                raise RuntimeError("前复权日线为空")
+            # 日期,开,收,高,低,量
+            return [(f[0][:10], float(f[1]), float(f[2]), float(f[3]), float(f[4]))
+                    for f in kl]
+        except Exception as e:  # noqa: BLE001
+            last = e
+            log("  [腾讯前复权入口不可用 %s] %s"
+                % (base.split("//")[1].split("/")[0], str(e)[:50]))
+    raise RuntimeError("腾讯前复权全部入口失败：%s" % last)
 
 
 def em_daily_qfq(symbol, days=400):
@@ -415,6 +447,68 @@ def bias_price(closes, k, ma6=None):
     s5 = float(c[-6:-1].sum())
     return s5 * (1 + k / 100.0) / (5 - k / 100.0)
 
+
+
+def sim_buy_price(conds, closes, days=5):
+    """按「价格在 days 个交易日内匀速跌到位」反解买点（仅用于纯 RSI/BIAS 规则）。
+
+    与单日跳口径的区别：单日暴跌时 6 日均线几乎不动，bias_price() 给的是「明天一天
+    跌到这儿就触发」；而阴跌时 MA6 跟着下移，必须跌更深才满足同一阈值。
+    圣农发展的策略卡用的就是 5 日匀速口径（14.71 vs 单日 15.52），看板必须对齐，
+    否则同一个规则在两处给出两个买点。
+    含均线条件时不在这里解（交给 critical_window 的夹逼区间），返回 None 表示不适用。"""
+    c = list(closes)
+    if len(c) < 20:
+        return None
+    for ind, _op, _val in conds:
+        if ind not in ("rsi", "bias"):
+            return None
+    last = float(c[-1])
+    base = c[-400:]
+
+    def at(P):
+        step = (P / last) ** (1.0 / days)
+        px, cs = last, list(base)
+        for _ in range(days):
+            px *= step
+            cs.append(px)
+        rsi = rsi_wilder(cs)
+        bias = (cs[-1] / float(np.mean(cs[-6:])) - 1) * 100
+        return rsi, bias
+
+    def ok(P):
+        rsi, bias = at(P)
+        for ind, op, val in conds:
+            v = rsi if ind == "rsi" else bias
+            if not ((v < val) if op == "<" else (v > val)):
+                return False
+        return True
+
+    lo, hi = last * 0.40, last * 1.05
+    if not ok(lo):                    # 跌 60% 都触发不了：说明现价已满足或规则无解
+        return None
+    for _ in range(90):
+        mid = (lo + hi) / 2.0
+        if ok(mid):
+            lo = mid
+        else:
+            hi = mid
+    return (lo + hi) / 2.0
+
+
+def resolve_buy(bc, closes, ma6, bt=None):
+    """买点解析：默认走 critical_window 的夹逼/单日口径；
+    bt 里声明了 buySim=N 的规则改用「N 个交易日匀速跌到位」反解（与策略卡同算法）。
+    返回 (lo, hi, no_win, why)，与 critical_window 同签名。"""
+    lo, hi, no_win, why = critical_window(bc, closes, ma6)
+    days = (bt or {}).get("buySim")
+    if days:
+        sim = sim_buy_price(bc, closes, days)
+        if sim is not None:
+            dec = 3 if abs(closes[-1]) < 10 else 2
+            hi = math.floor(sim * 10 ** dec) / 10 ** dec   # 向下让 1 个最小价位，避开边界
+            lo, no_win, why = None, False, ""
+    return lo, hi, no_win, why
 
 
 def parse_rule(rule):
@@ -752,7 +846,7 @@ def main():
             rsi = rsi_wilder(closes)
             bias6 = (price / ma6 - 1) * 100
             bc, sc = parse_rule(buy_rule), parse_rule(sell_rule)
-            buy_lo, buy_px, no_win, nowhy = critical_window(bc, closes, ma6)
+            buy_lo, buy_px, no_win, nowhy = resolve_buy(bc, closes, ma6, bt)
             # 跟踪止盈：卖点不是常数，先模拟出「按规则现在是否持仓、峰值多少」
             trail = next((c[2] for c in sc if c[0] == "trail"), None)
             pos = trail_pos(dly, bc, trail, bt.get("stop")) if trail else None

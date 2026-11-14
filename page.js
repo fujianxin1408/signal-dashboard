@@ -167,6 +167,40 @@ function critWindow(conds, c, ma6) {
   return [null, Math.ceil(Math.max.apply(null, pts) * 100) / 100 + 0.01, false, ''];
 }
 
+/* 买点「N 日匀速跌到位」口径（bt.buySim）：单日跳到位时 MA6 几乎不动，
+ * biasPrice() 算出的价偏高；阴跌时 MA6 跟着下移，必须跌更深才满足同一阈值。
+ * 圣农发展的策略卡用的就是这个口径（14.71 vs 单日 15.52），看板必须一致，
+ * 否则同一条规则在两处报出两个买点。含均线条件时返回 null，交给 critWindow。 */
+function simBuyPrice(conds, c, days) {
+  if (!conds.length || c.length < 20) return null;
+  for (let i = 0; i < conds.length; i++) {
+    if (conds[i][0] !== 'rsi' && conds[i][0] !== 'bias') return null;
+  }
+  const last = c[c.length - 1], base = c.slice(-400);
+  const at = function (p) {
+    const step = Math.pow(p / last, 1 / days);
+    let px = last;
+    const cs = base.slice();
+    for (let k = 0; k < days; k++) { px *= step; cs.push(px); }
+    return [rsi14(cs), (cs[cs.length - 1] / _avg(cs.slice(-6)) - 1) * 100];
+  };
+  const ok = function (p) {
+    const v = at(p);
+    for (let i = 0; i < conds.length; i++) {
+      const k = conds[i], x = k[0] === 'rsi' ? v[0] : v[1];
+      if (!(k[1] === '<' ? x < k[2] : x > k[2])) return false;
+    }
+    return true;
+  };
+  let lo = last * 0.40, hi = last * 1.05;
+  if (!ok(lo)) return null;                       // 跌 60% 都不触发：现价已满足或无解
+  for (let i = 0; i < 90; i++) {
+    const mid = (lo + hi) / 2;
+    if (ok(mid)) lo = mid; else hi = mid;
+  }
+  return (lo + hi) / 2;
+}
+
 function hitTest(conds, rsi, bias6, price, ma60, ma250, up250) {
   for (let i = 0; i < conds.length; i++) {
     const ind = conds[i][0], op = conds[i][1], val = conds[i][2];
@@ -212,8 +246,16 @@ function recalcRow(r, price, mktBull, dayHigh) {
   const rsi = rsi14(h);
   const bias6 = (price / ma6 - 1) * 100;
   const bc = parseRule(r.buy_rule), sc = parseRule(r.sell_rule);
-  const bw = critWindow(bc, h, ma6);
+  let bw = critWindow(bc, h, ma6);
   const sw = critWindow(sc, h, ma6);
+  const simDays = (r.bt && r.bt.buySim) || 0;
+  if (simDays) {                                   // 走「N 日匀速」口径，与策略卡对齐
+    const sp = simBuyPrice(bc, h, simDays);
+    if (sp !== null) {
+      const dg = Math.abs(price) < 10 ? 3 : 2;
+      bw = [null, Math.floor(sp * Math.pow(10, dg)) / Math.pow(10, dg), false, ''];
+    }
+  }
   const mktReq = (r.bt && r.bt.mkt) || null;
   const blocked = mktReq === 'bear' ? !!mktBull : (!!mktReq && !mktBull);
   const bHit = hitTest(bc, rsi, bias6, price, sma60, sma250, up250);
