@@ -162,6 +162,19 @@ WATCH = [
     ("002299", "圣农发展", "RSI14<50 且 BIAS6<-7.0%", "RSI14>55", "sz",
      {"n": 31, "win": 77.4, "total": 624.3, "stop": 15, "qfq": True, "buySim": 5,
       "years": "2010-04 起 16.6 年"}),
+    # 2026-11-14 新增：16.6 年 37 笔胜率 62.2%、累计 +317.3%、年化 9.0%、回撤 26.1%、
+    # Calmar 0.35，持仓占 33% 时间。1326 组参数扫下来所有趋势/追涨型全线亏钱
+    # （上穿 MA60 买、跌破卖：138 笔、胜率 20.3%、回撤 55.9%），唯一活路是
+    # 「跌急了接、弹回均线就走」：RSI<35 且 BIAS6<-4% 买，收盘站上 MA60 卖。
+    # 卖点用 MA60 而不是 RSI>55：四组买点 × 四个止损档，MA60 卖 16 组全胜，
+    # 年化 7.5% → 9.0%。逻辑本来就该配对——买的是「被甩到均线下方」，卖就是「回到均线」。
+    # 代价是卖点没有固定价：MA60 每天在动，看板显示的是当日临界值（见 sell_line_price）。
+    # 两次 10 转 5（2013-07-08 −36.4%、2014-07-25 −38.1%）不复权会砸出假超跌信号，
+    # 故走前复权（bt.qfq=True）：不复权重跑 40 笔、年化 5.7%、回撤 56.8%。
+    # 基本面走弱（2026 前三季 −23.8%），别按 9.0% 线性外推。
+    ("600863", "内蒙华电", "RSI14<35 且 BIAS6<-4.0%", "MA60上", "sh",
+     {"n": 37, "win": 62.2, "total": 317.3, "stop": 8, "qfq": True,
+      "years": "2010-04 起 16.6 年"}),
 ]
 ETF_CODES = {"515080"}
 UA = {
@@ -627,6 +640,36 @@ def critical_price(conds, closes, ma6):
     return hi
 
 
+def sell_line_price(conds, closes):
+    """卖侧只有均线条件时的卖点（如「收盘站上 MA60」）。
+
+    这类规则没有固定触发价：卖点就是那条线本身，且每天都动。明日收盘刚好站上
+    MAn 所需的价 = ma_floor(closes, n)，与买点「跌破 MAn」共用同一个临界点。
+    只在卖侧没有 rsi/bias 固定价时兜底，其余标的仍走 critical_window，结果不变。
+    返回 (价格, 均线名)；不适用时返回 (None, None)。"""
+    vals, names = [], []
+    for ind, op, val in conds:
+        if ind == "ma60":
+            f = ma_floor(closes, 60)
+        elif ind == "ma250":
+            f = ma_floor(closes, 250)
+        elif ind == "ma250up":
+            f = ma250_up_floor(closes)
+        else:
+            continue
+        if f is None:                 # 历史不够，宁可空着也不给假卖点
+            return (None, None)
+        vals.append((op, f))
+        names.append("MA250" if ind.startswith("ma250") else "MA60")
+    if not vals:
+        return (None, None)
+    ups = [f for op, f in vals if op != "<"]
+    dns = [f for op, f in vals if op == "<"]
+    if ups and dns:                   # 上下混写（如「站上MA60 且 跌破MA250」）无单一解
+        return (None, None)
+    return ((max(ups) if ups else min(dns)), " + ".join(names))
+
+
 def hit(conds, rsi, bias6, price=None, ma60=None, ma250=None, ma250up=None, peak=None):
     ok = True
     for ind, op, val in conds:
@@ -850,10 +893,15 @@ def main():
             # 跟踪止盈：卖点不是常数，先模拟出「按规则现在是否持仓、峰值多少」
             trail = next((c[2] for c in sc if c[0] == "trail"), None)
             pos = trail_pos(dly, bc, trail, bt.get("stop")) if trail else None
+            sell_dyn = None
             if trail:
                 sell_px = round(pos["peak"] * (1 - trail / 100.0), 2) if pos else None
             else:
                 sell_px = critical_price(sc, closes, ma6)
+                sell_dyn = None
+                if sell_px is None:
+                    # 卖侧是「收盘站上 MA60」这类均线条件：卖点 = 那条线，逐日滚动
+                    sell_px, sell_dyn = sell_line_price(sc, closes)
             # 大盘门控：True/"bull" 需要多头，"bear" 需要空头；方向由 bt.mkt 决定
             mkt_req = bt.get("mkt")
             if mkt_req == "bear":
@@ -886,6 +934,7 @@ def main():
                 "ma250up": up250,
                 "ma250slope": None if slope250 is None else round(slope250, 2),
                 "sell": None if sell_px is None else round(sell_px, 3 if code in ETF_CODES else 2),
+                "selldyn": sell_dyn,
                 "trail": trail,
                 "pos": pos,
                 "gap_buy": None if no_win else gap(price, buy_px, "buy"),
@@ -917,6 +966,10 @@ def main():
                     % (trail, ("自 %s 以 %.2f 持有，峰值 %.2f（%s）"
                                % (pos["in"], pos["entry"], pos["peak"], pos["peakDate"]))
                        if pos else "按规则当前空仓，无卖点"))
+            if sell_dyn:
+                log("      动态卖点：卖点 = %s 明日值 %.2f（每日滚动，不是固定价；"
+                    "现价在其上方 %.1f%% 即已触发卖出）"
+                    % (sell_dyn, sell_px, (price / sell_px - 1) * 100))
             if sma250 and "MA250" in buy_rule:
                 log("      年线 %.2f %s %.2f%%  现价距年线 %+.1f%%"
                     % (sma250, "升" if up250 else "降",

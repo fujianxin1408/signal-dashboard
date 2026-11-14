@@ -95,6 +95,25 @@ function maFloor(c, n) {
 }
 function ma60Floor(c) { return maFloor(c, 60); }
 
+/* 卖侧只有均线条件时的卖点（如「收盘站上 MA60」）。这类规则没有固定触发价，
+ * 卖点就是那条线，每天滚动——与后端 sell_line_price() 同一算法，保证两处一致。 */
+function sellLinePx(conds, c) {
+  const ups = [], dns = [];
+  for (let i = 0; i < conds.length; i++) {
+    const k = conds[i];
+    let f = null;
+    if (k[0] === 'ma60') f = ma60Floor(c);
+    else if (k[0] === 'ma250') f = maFloor(c, 250);
+    else if (k[0] === 'ma250up') f = ma250UpFloor(c);
+    else continue;
+    if (f === null) return null;
+    if (k[1] === '<') dns.push(f); else ups.push(f);
+  }
+  if (!ups.length && !dns.length) return null;
+  if (ups.length && dns.length) return null;
+  return ups.length ? Math.max.apply(null, ups) : Math.min.apply(null, dns);
+}
+
 // 明日 MA250 仍要高于 20 日前的 MA250：C > 250A − s249
 function ma250UpFloor(c) {
   const n = 250, back = 20;
@@ -273,6 +292,8 @@ function recalcRow(r, price, mktBull, dayHigh) {
     }
   } else {
     sellPx = sw[1];
+    // 卖侧是「站上 MA60」这类均线条件时 critWindow 给不出固定价，卖点由均线兜底
+    if (sellPx === null) sellPx = sellLinePx(sc, h);
   }
   const sHit = r.trail
     ? (!!pos && price <= sellPx + 1e-9)
@@ -437,6 +458,13 @@ function trailText(r) {
   return ' ｜ <span class="nw">按规则当前空仓：没有峰值就没有卖点</span>';
 }
 
+/* 卖点是均线（selldyn，如「收盘站上 MA60」）时，卖点＝那条线的当日值，逐日滚动。
+ * 不加这句，用户会把 4.95 当成可以挂单的固定止盈价——明天均线一走就错位。 */
+function dynText(r) {
+  if (!r.selldyn) return '';
+  return ' ｜ <span class="nw">卖点＝' + r.selldyn + ' 当日值，随均线逐日滚动（不是固定价）</span>';
+}
+
 /* ================== 持仓成本 ==================
  * 用户填的成本价只存在浏览器 localStorage，不上传、不进 data.json。
  * 有了成本才能回答三个问题：现在赚亏多少、涨到卖点能赚多少、跌到止损亏多少。
@@ -532,6 +560,8 @@ function buyCellHtml(r) {
 
 // 卖点列：持仓时加「卖出」标签并加粗，未持仓保持原样
 // 跟踪止盈的票空仓时没有峰值，也就没有卖点，别拿一个 0 或 — 糊过去
+// 动态卖点（selldyn，如「收盘站上 MA60」）在数字后挂一条线名：它每天随均线滚动，
+// 不是固定的止盈价，不标出来用户会当成「挂单 4.95 卖」。
 function sellCellHtml(r) {
   if (!r.sell) {
     if (r.trail) {
@@ -540,9 +570,13 @@ function sellCellHtml(r) {
         : '<span class="dim">—</span><i class="gap">空仓，无卖点</i>';
     }
   }
-  if (!hasCost(r)) return fmt(r.sell) + gapSellHtml(r);
-  return '<span class="mini-row"><i class="mini m-sell">卖出</i><b>' + fmt(r.sell) +
-    '</b></span>' + gapSellHtml(r);
+  const dyn = r.selldyn ? '<i class="gap dyn" title="卖点 = ' + r.selldyn +
+    ' 当日值，逐日滚动，不是固定价">' + r.selldyn + '</i>' : '';
+  // 数字与线名同排（.px2 是 flex column，直接排会各占一行、把「已超 x%」挤到第三行）
+  const num = '<span class="sellnum">' + fmt(r.sell) + dyn + '</span>';
+  if (!hasCost(r)) return num + gapSellHtml(r);
+  return '<span class="mini-row"><i class="mini m-sell">卖出</i>' + num +
+    '</span>' + gapSellHtml(r);
 }
 
 // 分组合计：只把填了股数的持仓计入，没填股数就提示怎么开
@@ -587,7 +621,9 @@ function posInner(r) {
 
   // 第一行：卖出价、止损价两个放大色块 + 醒目提示
   out.push('<span class="posline-top">' +
-    '<span class="kpi k-sell' + (soldOut ? ' hit' : '') + '"><i>卖出</i><b>' +
+    '<span class="kpi k-sell' + (soldOut ? ' hit' : '') + '"' +
+    (r.selldyn ? ' title="卖点 = ' + r.selldyn + ' 当日值，逐日滚动，不是固定价"' : '') +
+    '><i>卖出' + (r.selldyn ? '·' + r.selldyn : '') + '</i><b>' +
     (sellPx ? fmt(sellPx) : '—') + '</b>' + (sellEm ? '<em>' + sellEm + '</em>' : '') + '</span>' +
     '<span class="kpi k-stop' + (s && s.breached ? ' breach' : '') + '"><i>' +
     (s && s.kind === 'ma60' ? '风控' : '止损') + '</i><b>' + (s ? fmt(s.px) : '未设') + '</b>' +
@@ -812,7 +848,7 @@ function render() {
       (posCost(r.code) ? posCost(r.code) : '') + '"></div>' +
       '<div class="posline">' + posInner(r) + '</div>' +
       '<div class="rule">买 ' + r.buy_rule + ' ｜ 卖 ' + r.sell_rule +
-      (r.bt ? ' ｜ ' + btText(r.bt) : '') + ma250Text(r) + trailText(r) +
+      (r.bt ? ' ｜ ' + btText(r.bt) : '') + ma250Text(r) + trailText(r) + dynText(r) +
       (r.bt && r.bt.mkt === 'bear' ? ' ｜ 仅大盘空头（HS300&lt;MA60）时有效'
         : (r.bt && r.bt.mkt ? ' ｜ 仅大盘多头时有效' : '')) +
       (r.fq === 'qfq' ? ' ｜ <span class="nw">前复权口径</span>'

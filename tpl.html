@@ -60,6 +60,10 @@ details.legend[open] summary::before{content:'▾ '}
 .gap.pos{color:#c0392b;font-weight:600}
 .gap.near{color:#b26a00;font-weight:600}
 .gap.sell{color:#2e7d32}
+/* 动态卖点标记（如 MA60）：卖点随均线逐日滚动，不是可挂单的固定价 */
+.gap.dyn{display:inline-block;margin-left:3px;padding:0 3px;border:1px solid #c9ccd4;
+  border-radius:3px;font-size:9.5px;color:#8b8f99;letter-spacing:.3px;vertical-align:1px}
+.sellnum{display:inline-flex;align-items:center;justify-content:flex-end;gap:1px}
 .sg{display:flex;flex-wrap:wrap;gap:4px;align-items:center;justify-content:flex-end}
 .tag{display:inline-block;padding:1px 7px;border-radius:4px;font-size:11px;font-weight:500}
 .t-buy{background:#fde8e8;color:#c0392b}
