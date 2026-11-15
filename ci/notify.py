@@ -11,6 +11,10 @@
   该响两声就响两声，但重复执行同一档不会重复响。
 · **推送失败不让 workflow 变红**：数据早就提交了，通知只是附加动作。
   失败打 ::warning:: 留在运行日志里；没配 token 也只告警、不报错。
+· **默认不推卖出信号**：持仓只存在浏览器 localStorage，服务端无从得知谁持股、谁空仓，
+  对空仓的人发「卖出触发」纯属噪音。与看板「空仓不提卖」同一条规则：卖出提醒交给
+  看板（填成本价后自动出现卖出价、止损价与距离），推送只报买入机会。
+  确实想让微信也提醒卖出，设 `NOTIFY_SELL=1` 恢复旧行为。
 · 周五 15:05 若无任何信号，发一条「本周无信号」心跳——否则 token 过期这种事
   可能几周都发现不了。心跳可用 HEARTBEAT=0 关掉。
 
@@ -26,6 +30,7 @@ FEISHU_URL       可选，飞书群机器人 Webhook
 WXPUSHER_TOKEN   可选，WxPusher 应用 appToken（微信扫码即关注公众号，消息进微信）
 WXPUSHER_UID     可选，接收人 UID，多个用逗号分隔；留空则推给该应用全部订阅者
 HEARTBEAT        默认 1，设 0 关闭周五心跳
+NOTIFY_SELL      默认 0（不推卖出信号），设 1 恢复「卖出触发」段落与标题里的「N 卖」
 STATE_FILE       默认 <repo>/notify_state.json
 """
 import datetime as dt
@@ -43,6 +48,9 @@ UA = {"User-Agent": "signal-notify/1.0"}
 
 SLOT_NAME = {"1451": "盘中预警", "1505": "收盘确认"}
 KEEP_DAYS = 5
+# 持仓不上传服务端，无法逐票判断持股与否，故默认整段不发卖出提醒。
+# 设 NOTIFY_SELL=1 可恢复：那时推送不区分持仓，与旧版行为一致。
+NOTIFY_SELL = os.environ.get("NOTIFY_SELL", "0") not in ("0", "false", "False", "")
 
 
 def log(*a):
@@ -228,17 +236,18 @@ def line_of(r, side):
 
 def build(rows, slot, data):
     buys = [r for r in rows if r.get("status") == "buy"]
-    sells = [r for r in rows if r.get("status") == "sell"]
+    sells = [r for r in rows if r.get("status") == "sell"] if NOTIFY_SELL else []
     kind = SLOT_NAME[slot]
     mk = data.get("market") or {}
+    tail = (" %d 卖" % len(sells)) if NOTIFY_SELL else ""
 
-    stamp = dt.datetime.utcnow() + dt.timedelta(hours=8)
     # 标题固定含「信号」二字：钉钉自定义机器人用「关键词」做安全校验时，
     # 关键词填「信号」即可命中这条和心跳，不用去算加签
-    title = "【%s】信号 · %d 买 %d 卖 · %s" % (kind, len(buys), len(sells),
-                                          stamp.strftime("%m-%d %H:%M"))
+    stamp = dt.datetime.utcnow() + dt.timedelta(hours=8)
+    title = "【%s】信号 · %d 买%s · %s" % (kind, len(buys), tail,
+                                        stamp.strftime("%m-%d %H:%M"))
 
-    parts = ["### %s · %d 买 %d 卖" % (kind, len(buys), len(sells)),
+    parts = ["### %s · %d 买%s" % (kind, len(buys), tail),
              "%s　沪深300 %s（%s）" % (data.get("date", ""), num(mk.get("idx"), 1),
                                       "多头" if mk.get("bull") else "空头")]
     if slot == "1451":
@@ -296,7 +305,7 @@ def save_state(state):
 
 _now = __import__("datetime").datetime.utcnow() + __import__("datetime").timedelta(hours=8)
 TEST_TITLE = "【测试】推送链路已接通 · %s" % _now.strftime("%m-%d %H:%M")
-TEST_BODY = """### 测试消息 · 1 买 1 卖
+TEST_BODY = """### 测试消息 · 1 买
 
 这条不是真信号，是用来确认微信能收到。
 
@@ -306,14 +315,8 @@ TEST_BODY = """### 测试消息 · 1 买 1 卖
 现价 10.00　买点 10.20　已低 2.0%
 BIAS6 -2.31%　·　RSI 38.4　·　年线 10.90↑　·　回测 72 笔 胜率 59.7%
 
-**— 卖出触发 —**
-
-**示例科技** 111111
-现价 20.00　卖点 19.80　已超 1.0%
-BIAS6 +7.42%　·　年线 18.20↑
-
 ———
-每天 15:05 收盘确认；同一只票只推一次。"""
+每天 15:05 收盘确认；同一只票只推一次。默认只推买入，卖出提醒在看板填成本价后看。"""
 
 
 def main():
@@ -352,7 +355,10 @@ def main():
     day = data.get("date") or dt.date.today().isoformat()
     sent_today = state.setdefault(day, {}).setdefault(slot, [])
 
-    hits = [r for r in rows if r.get("status") in ("buy", "sell")]
+    # 默认只让买入信号进推送：卖出信号连去重键都不记，避免「只有卖出触发」
+    # 的日子发出一条空消息，也避免服务端替空仓的人提醒卖出
+    statuses = ("buy", "sell") if NOTIFY_SELL else ("buy",)
+    hits = [r for r in rows if r.get("status") in statuses]
     fresh = []
     for r in hits:
         k = "%s|%s" % (r.get("code"), r.get("status"))

@@ -577,13 +577,13 @@ function sellCellHtml(r) {
         : '<span class="dim">—</span><i class="gap">空仓，无卖点</i>';
     }
   }
+  // 空仓：卖点列干脆不给数字——没持股就不需要任何卖出提醒（价格、距离、均线小标都不给）。
+  // 策略参数仍在规则行里（「卖 RSI>65」），填上成本价后这里自动变成完整卖出价 + 距离。
+  if (!hasCost(r)) {
+    return '<span class="dimref" title="空仓，无需卖出；填入成本价后这里显示卖出价与距离">—</span>';
+  }
   const dyn = r.selldyn ? '<i class="gap dyn" title="卖点 = ' + r.selldyn +
     ' 当日值，逐日滚动，不是固定价">' + r.selldyn + '</i>' : '';
-  // 空仓：卖点只作规则参考，淡显、不给「已超 / 还需涨」提醒——没股可卖就别催卖
-  if (!hasCost(r)) {
-    return '<span class="dimref" title="空仓，无需卖出；此处仅列出该规则的卖点作参考">' +
-      fmt(r.sell) + '</span>' + dyn;
-  }
   // 数字与线名同排（.px2 是 flex column，直接排会各占一行、把「已超 x%」挤到第三行）
   const num = '<span class="sellnum">' + fmt(r.sell) + dyn + '</span>';
   return '<span class="mini-row"><i class="mini m-sell">卖出</i>' + num +
