@@ -532,7 +532,7 @@ def resolve_buy(bc, closes, ma6, bt=None):
         sim = sim_buy_price(bc, closes, days)
         if sim is not None:
             dec = 3 if abs(closes[-1]) < 10 else 2
-            hi = math.floor(sim * 10 ** dec) / 10 ** dec   # 向下让 1 个最小价位，避开边界
+            hi = math.floor(sim * 10 ** dec) / 10 ** dec   # 向下让 1 个最小价位，避开边界（再由主字段 round 到目标精度）
             lo, no_win, why = None, False, ""
     return lo, hi, no_win, why
 

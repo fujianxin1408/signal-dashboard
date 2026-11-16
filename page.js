@@ -301,7 +301,7 @@ function recalcRow(r, price, mktBull, dayHigh) {
 
   const o = {};
   for (const k in r) o[k] = r[k];
-  const dec = Math.abs(price) < 10 ? 3 : 2;
+  const dec = ETF_CODES[r.code] ? 3 : 2;
   o.price = Number(price.toFixed(dec));
   o.rsi = Number(rsi.toFixed(1));
   o.bias6 = Number(bias6.toFixed(2));
@@ -384,9 +384,14 @@ function fallbackGap(r) {
   return (r.buy - r.price) / r.price * 100;
 }
 
+// 只有 ETF 才有 3 位小数（最小变动 0.001），普通 A 股一律 2 位。
+// 旧版用「价格 < 10 元」来猜 3 位，会把海澜之家 6.17 显示成 6.170 这类假 3 位。
+const ETF_CODES = { '515080': true };
+function pdec(r) { return (r && ETF_CODES[r.code]) ? 3 : 2; }
+
 function fmt(n, d) {
   if (n === null || n === undefined || isNaN(n)) return '—';
-  if (d === undefined) d = (Math.abs(Number(n)) < 10 && !Number.isInteger(Number(n))) ? 3 : 2;
+  if (d === undefined) d = 2;
   return Number(n).toFixed(d);
 }
 
@@ -398,7 +403,7 @@ function gapBuyHtml(r) {
     // ② 现价已在年线之上 → 是「再跌 3% 就破线」，下界不是买点，给了会误导
     const above = r.buy_lo && r.price && Number(r.price) >= Number(r.buy_lo);
     const t = r.nowhy === '历史不足' ? '数据不足，待补'
-      : (above ? '再跌就破年线'
+      : (above ? (String(r.buy_rule).indexOf('MA250') >= 0 ? '再跌就破年线' : '再跌就破 MA60')
         : (/MA250上|MA60上/.test(r.buy_rule) ? '站上才谈买点' : '贴线，无买点'));
     return '<i class="gap">' + t + '</i>';
   }
@@ -453,7 +458,7 @@ function trailText(r) {
   if (!r.trail) return '';
   const pct = (1 - r.trail / 100).toFixed(2);
   if (r.pos) {
-    return ' ｜ <span class="nw">卖点＝峰值 ' + fmt(r.pos.peak) + '（' + r.pos.peakDate + '）× ' +
+    return ' ｜ <span class="nw">卖点＝峰值 ' + fmt(r.pos.peak, pdec(r)) + '（' + r.pos.peakDate + '）× ' +
       pct + '，创新高会自动上移</span>';
   }
   return ' ｜ <span class="nw">按规则当前空仓：没有峰值就没有卖点</span>';
@@ -551,17 +556,17 @@ function buyCellHtml(r) {
     if (r.nowin) {
       // 现价已在年线上时，「≥下界」不是买点而是「跌到这里就破线」，不显示数字
       const above = r.buy_lo && r.price && Number(r.price) >= Number(r.buy_lo);
-      if (r.buy_lo && !above) return '<span class="dim">≥' + fmt(r.buy_lo) + '</span>' + gapBuyHtml(r);
+      if (r.buy_lo && !above) return '<span class="dim">≥' + fmt(r.buy_lo, pdec(r)) + '</span>' + gapBuyHtml(r);
       return '<span class="dim">—</span>' + gapBuyHtml(r);
     }
-    return fmt(r.buy) + gapBuyHtml(r);
+    return fmt(r.buy, pdec(r)) + gapBuyHtml(r);
   }
   var s = stopInfo(r);
   if (!s) return '<span class="mini-row"><i class="mini m-stop">止损</i><b>未设</b></span>';
   var tip = s.breached ? '已跌破' : '再跌 ' + Math.abs(s.dist).toFixed(1) + '%';
   return '<span class="mini-row"><i class="mini m-stop">' +
     (s.kind === 'ma60' ? '风控' : '止损') + '</i><b class="' +
-    (s.breached ? 'k-breach' : '') + '">' + fmt(s.px) + '</b></span>' +
+    (s.breached ? 'k-breach' : '') + '">' + fmt(s.px, pdec(r)) + '</b></span>' +
     '<i class="gap ' + (s.breached ? 'pos' : 'near') + '">' + tip + '</i>';
 }
 
@@ -585,7 +590,7 @@ function sellCellHtml(r) {
   const dyn = r.selldyn ? '<i class="gap dyn" title="卖点 = ' + r.selldyn +
     ' 当日值，逐日滚动，不是固定价">' + r.selldyn + '</i>' : '';
   // 数字与线名同排（.px2 是 flex column，直接排会各占一行、把「已超 x%」挤到第三行）
-  const num = '<span class="sellnum">' + fmt(r.sell) + dyn + '</span>';
+  const num = '<span class="sellnum">' + fmt(r.sell, pdec(r)) + dyn + '</span>';
   return '<span class="mini-row"><i class="mini m-sell">卖出</i>' + num +
     '</span>' + gapSellHtml(r);
 }
@@ -635,9 +640,9 @@ function posInner(r) {
     '<span class="kpi k-sell' + (soldOut ? ' hit' : '') + '"' +
     (r.selldyn ? ' title="卖点 = ' + r.selldyn + ' 当日值，逐日滚动，不是固定价"' : '') +
     '><i>卖出' + (r.selldyn ? '·' + r.selldyn : '') + '</i><b>' +
-    (sellPx ? fmt(sellPx) : '—') + '</b>' + (sellEm ? '<em>' + sellEm + '</em>' : '') + '</span>' +
+    (sellPx ? fmt(sellPx, pdec(r)) : '—') + '</b>' + (sellEm ? '<em>' + sellEm + '</em>' : '') + '</span>' +
     '<span class="kpi k-stop' + (s && s.breached ? ' breach' : '') + '"><i>' +
-    (s && s.kind === 'ma60' ? '风控' : '止损') + '</i><b>' + (s ? fmt(s.px) : '未设') + '</b>' +
+    (s && s.kind === 'ma60' ? '风控' : '止损') + '</i><b>' + (s ? fmt(s.px, pdec(r)) : '未设') + '</b>' +
     (s ? '<em>' + (s.breached ? '已跌破，按纪律走' : '再跌 ' + Math.abs(s.dist).toFixed(1) + '%') + '</em>'
        : '<em>该策略未设</em>') + '</span>' +
     (s && s.breached ? '<span class="warn">已跌破止损价，按纪律离场</span>'
@@ -648,7 +653,7 @@ function posInner(r) {
   var signPct = function (v) {
     return (v > 0.05 ? '+' : (v < -0.05 ? '−' : '')) + Math.abs(v).toFixed(1) + '%';
   };
-  var meta = '<span class="posmeta">成本 <b>' + fmt(cost) + '</b> · ' + word +
+  var meta = '<span class="posmeta">成本 <b>' + fmt(cost, pdec(r)) + '</b> · ' + word +
     ' <b class="' + (pnl > 0.05 ? 'up' : (pnl < -0.05 ? 'down' : '')) + '">' +
     signPct(pnl) + '</b>';
   if (sellPx) {
@@ -857,7 +862,7 @@ function render() {
       '<div class="row s-' + st + (held ? ' held' : '') +
       (isBreached(r) ? ' breached' : '') + '">' +
       '<div class="name">' + r.name + '<span class="code">' + r.code + '</span></div>' +
-      '<div class="px">' + fmt(r.price) + '</div>' +
+      '<div class="px">' + fmt(r.price, pdec(r)) + '</div>' +
       '<div class="num hide-m">' + fmt(r.rsi, 1) + '</div>' +
       '<div class="num hide-m ' + (r.bias6 > 0 ? 'up' : 'down') + '">' +
       (r.bias6 > 0 ? '+' : '') + fmt(r.bias6, 2) + '%</div>' +
