@@ -639,7 +639,7 @@ def critical_window(conds, closes, ma6):
     # 买侧 = 条件里有「阈值向下」的 rsi/bias（如 BIAS6<-2%）；均线条件本身只给下界，
     # 不能拿 conds[0] 判定——年线过滤写在最前面时会把方向判反
     buy_side = any(c[0] in ("rsi", "bias") and c[1] == "<" for c in conds)
-    pts, floors, why = [], [], ""
+    pts, floors = [], []
     for ind, op, val in conds:
         if ind == "trail":
             continue                  # 跟踪止盈没有固定触发价：卖点由持仓峰值决定
@@ -682,7 +682,7 @@ def critical_window(conds, closes, ma6):
 
 def critical_price(conds, closes, ma6):
     """单值触发价：买侧取区间上界，卖侧取最大。无解时返回 None。"""
-    lo, hi, no_win, _why = critical_window(conds, closes, ma6)
+    _lo, hi, no_win, _why = critical_window(conds, closes, ma6)
     if no_win:
         return None
     return hi
@@ -696,7 +696,7 @@ def sell_line_price(conds, closes):
     只在卖侧没有 rsi/bias 固定价时兜底，其余标的仍走 critical_window，结果不变。
     返回 (价格, 均线名)；不适用时返回 (None, None)。"""
     vals, names = [], []
-    for ind, op, val in conds:
+    for ind, op, _val in conds:
         if ind == "ma60":
             f = ma_floor(closes, 60)
         elif ind == "ma250":
@@ -907,7 +907,7 @@ def main():
     for code, name, buy_rule, sell_rule, mkt, bt in WATCH:
         sym = mkt + code
         try:
-            price, high, low, prev = quote(sym)
+            price, high, low, _prev = quote(sym)
             # 带跟踪止盈的标的要把整段历史跑一遍才能知道「持仓期最高价」，
             # 400 根（约 1.6 年）可能不够覆盖一次完整持仓，取 700 根。
             # 高股息票（bt.qfq）改走前复权日线，避免除息跳空污染 RSI 报出假买点。
@@ -920,7 +920,7 @@ def main():
             if len(dly) < 70:
                 raise RuntimeError("日线仅 %d 根" % len(dly))
             if dly[-1][0] == today:
-                d0, o0, c0, h0, l0 = dly[-1]
+                d0, o0, _c0, h0, l0 = dly[-1]
                 dly[-1] = (d0, o0, price, max(h0, high), min(l0, low) if l0 > 0 else low)
             else:
                 dly.append((today, price, price, high, low))
