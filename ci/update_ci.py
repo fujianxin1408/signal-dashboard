@@ -221,6 +221,20 @@ WATCH = [
     ("600803", "新奥股份", "RSI14<35 且 BIAS6<-2.0%", "RSI14>65", "sh",
      {"n": 27, "win": 81.5, "total": 849.0, "stop": 0,
       "years": "2007-06 起 16.9 年"}),
+    # 2026-11-16 新增：12.6 年 67 笔胜率 61.2%、累计 +429.9%、年化 14.1%、回撤 32.0%、
+    # Calmar 0.44，同期买入持有 +90.5%（年化 5.2%）却扛 -73% 回撤。低波动火电公用事业股，
+    # 追趋势/等深跌都不行（上穿MA60 胜率 19.6%、回撤 70%；公用波动小等不到 BIAS 深坑），
+    # 唯一能打的是「RSI14<45 接一把、相对成本 +10% 止盈、-8% 止损」——固定小目标、勤快小跑。
+    # 41 笔止盈均赚 10.0%、26 笔止损均亏 8.3%，盈亏比 1.21；三段 +107.5/+23.3/+117.0 全正，
+    # 中段（2018-06~2022-09）偏弱只 +23.3%，别按 14% 线性外推。
+    # 卖点不是 RSI/BIAS：是相对用户填的成本 +10%（tp），与 bt.stop 止损对称、都由前端按成本算，
+    # 故 sell_rule 用 RSI>99 占位（永不触发、不产生假卖点），实际卖点看前端持仓视图。
+    # 关键：每年 6~7 月除息，不复权单日跳空 5%~27% 会造假超卖（前复权年化 14.1% vs 不复权 8.8%），
+    # 故必须走前复权（bt.qfq=True），与回测口径一致。参数邻域成片（RSI40~50×止盈8~12 都是高原），
+    # 5 个起点年化 9.1%~15.3% 全正；当前 RSI 67.9 超买、买点约 5.28，按规则空仓等待。
+    ("600023", "浙能电力", "RSI14<45", "RSI14>99", "sh",
+     {"n": 67, "win": 61.2, "total": 429.9, "stop": 8, "tp": 10, "qfq": True,
+      "years": "2014-04 起 12.6 年"}),
 ]
 ETF_CODES = {"515080"}
 UA = {
@@ -961,8 +975,13 @@ def main():
             # 跟踪止盈：卖点不是常数，先模拟出「按规则现在是否持仓、峰值多少」
             trail = next((c[2] for c in sc if c[0] == "trail"), None)
             pos = trail_pos(dly, bc, trail, bt.get("stop")) if trail else None
+            # 相对成本固定止盈（bt.tp）：卖点 = 用户填的成本×(1+tp%)，与 bt.stop 止损对称，
+            # 成本只存在前端浏览器，后端无从得知，故不报固定卖点价（交给前端持仓视图算）。
+            take_profit = bt.get("tp")
             sell_dyn = None
-            if trail:
+            if take_profit:
+                sell_px = None
+            elif trail:
                 sell_px = round(pos["peak"] * (1 - trail / 100.0), 2) if pos else None
             else:
                 sell_px = critical_price(sc, closes, ma6)
@@ -1004,6 +1023,7 @@ def main():
                 "sell": None if sell_px is None else round(sell_px, 3 if code in ETF_CODES else 2),
                 "selldyn": sell_dyn,
                 "trail": trail,
+                "tp": take_profit,
                 "pos": pos,
                 "gap_buy": None if no_win else gap(price, buy_px, "buy"),
                 "gap_sell": gap(price, sell_px, "sell"),

@@ -282,22 +282,31 @@ function recalcRow(r, price, mktBull, dayHigh) {
   /* 跟踪止盈：卖点 = 持仓期最高价 × (1−N%)，没有固定值。
    * 持仓状态由后端按规则从前跑一遍得出（r.pos）；盘中创了新高就用实时最高价顶上去，
    * 这样 17% 的基准始终是「到过哪儿」而不是「昨天收在哪」。空仓则没有卖点。 */
-  let pos = r.pos || null, sellPx = null;
-  if (r.trail) {
+  let pos = r.pos || null, sellPx = null, tpNow = null;
+  // 相对成本固定止盈：卖点 = 持仓成本×(1+tp%)，成本来自前端输入，后端无从得知。
+  // 没填成本（空仓）就没有卖点，也不触发卖出——与「空仓不提卖」一致。
+  const tpPct = (r.bt && r.bt.tp) || r.tp || 0;
+  if (tpPct > 0 && posCost(r.code) > 0) {
+    const tgt = posCost(r.code) * (1 + tpPct / 100);
+    tpNow = { px: tgt, tp: tpPct };
+    sellPx = tgt;
+  } else if (r.trail) {
     if (pos) {
       const hi = Math.max(Number(dayHigh) || 0, price);
       const pk = Math.max(Number(pos.peak) || 0, hi);
       pos = { in: pos.in, entry: pos.entry, peak: Number(pk.toFixed(2)), peakDate: pos.peakDate };
       sellPx = pk * (1 - r.trail / 100);
     }
-  } else {
+  } else if (!(r.bt && r.bt.tp)) {
     sellPx = sw[1];
     // 卖侧是「站上 MA60」这类均线条件时 critWindow 给不出固定价，卖点由均线兜底
     if (sellPx === null) sellPx = sellLinePx(sc, h);
   }
-  const sHit = r.trail
-    ? (!!pos && price <= sellPx + 1e-9)
-    : hitTest(sc, rsi, bias6, price, sma60, sma250, up250);
+  const sHit = tpNow
+    ? (price >= sellPx - 1e-9)
+    : (r.trail
+      ? (!!pos && price <= sellPx + 1e-9)
+      : hitTest(sc, rsi, bias6, price, sma60, sma250, up250));
 
   const o = {};
   for (const k in r) o[k] = r[k];
@@ -430,6 +439,7 @@ function btText(bt) {
   let s = '回测 ' + (bt.n || '—') + ' 笔 · 胜率 ' + fmt(bt.win, 1) + '% · 累计 ';
   s += (bt.total > 0 ? '+' : '') + fmt(bt.total, 0) + '%';
   if (bt.stop) s += ' · 止损 ' + bt.stop + '%';
+  if (bt.tp) s += ' · 止盈 +' + bt.tp + '%（按成本）';
   // 样本少于 20 笔的策略统计可靠性弱，给个不刺眼的提示，别让人按胜率线性外推
   if (bt.n && bt.n < 20) {
     s += ' · <span style="color:#d98324">样本少</span>';
@@ -540,6 +550,18 @@ function stopInfo(r) {
 }
 function isBreached(r) { var s = stopInfo(r); return !!(hasCost(r) && s && s.breached); }
 
+// 相对成本固定止盈（bt.tp，如浙能电力 +10%）：卖点 = 成本×(1+tp%)，与 stopInfo 止损对称。
+// 成本只存在浏览器，后端无从得知，故卖点完全由前端在持仓时算出；空仓返回 null。
+function tpInfo(r) {
+  var tp = Number((r.bt && r.bt.tp) || 0);
+  var cost = posCost(r.code), px = Number(r.price);
+  if (!(tp > 0) || !(cost > 0)) return null;
+  var target = cost * (1 + tp / 100);
+  var dist = (target / px - 1) * 100;            // 负 = 还要涨才到
+  return { px: target, tp: tp, dist: dist, hit: dist < 0.05 };
+}
+function effSellPx(r) { var t = tpInfo(r); return t ? t.px : (r.sell || null); }
+
 // 持仓组内排序：跌破止损最急 → 已触发卖出 → 越接近卖点越靠前
 function cmpHeld(a, b) {
   var ba = isBreached(a) ? 1 : 0, bb = isBreached(b) ? 1 : 0;
@@ -588,6 +610,13 @@ function sellCellHtml(r) {
   if (!hasCost(r)) {
     return '<span class="dimref" title="空仓，无需卖出；填入成本价后这里显示卖出价与距离">—</span>';
   }
+  // 相对成本固定止盈：卖点 = 成本×(1+tp%)，覆盖后端的占位卖点（RSI>99 永不触发）
+  const tp = tpInfo(r);
+  if (tp) {
+    const tip = tp.hit ? '价格已到，该止盈' : '还需涨 ' + Math.abs(tp.dist).toFixed(1) + '%';
+    return '<span class="mini-row"><i class="mini m-sell">止盈</i><b>' +
+      fmt(tp.px, pdec(r)) + '</b></span><i class="gap near">' + tip + '</i>';
+  }
   const dyn = r.selldyn ? '<i class="gap dyn" title="卖点 = ' + r.selldyn +
     ' 当日值，逐日滚动，不是固定价">' + r.selldyn + '</i>' : '';
   // 数字与线名同排（.px2 是 flex column，直接排会各占一行、把「已超 x%」挤到第三行）
@@ -624,23 +653,28 @@ function posInner(r) {
   var px = Number(r.price), qty = posQty(r.code);
   var pnl = (px / cost - 1) * 100;
   var word = pnl > 0.05 ? '浮盈' : (pnl < -0.05 ? '浮亏' : '持平');
-  var sellPx = r.sell ? Number(r.sell) : null;
+  var tp = tpInfo(r);
+  var sellPx = tp ? tp.px : (r.sell ? Number(r.sell) : null);
   // 距卖点与卖点列共用 gap_sell 口径（后端 gap()：以卖点为分母，正=已超卖点），
   // 否则同一屏会出现「还需涨 3.6%」和「还需涨 3.8%」两个数字
-  var gSell = (r.gap_sell === null || r.gap_sell === undefined) ? null : Number(r.gap_sell);
+  // 相对成本止盈（tp）的卖点前端现算：gap 口径与 tpInfo.dist 一致（以现价为分母），
+  // 正=已超卖点、负=还需涨。这样卖点列和信息条的「还需涨 x%」是同一个数。
+  var gSell = tp ? Math.round(-tp.dist * 10) / 10
+    : ((r.gap_sell === null || r.gap_sell === undefined) ? null : Number(r.gap_sell));
   var sellTip = (gSell === null || !isFinite(gSell)) ? ''
     : (gSell > 0.05 ? '价格已到，该卖'
        : (gSell > -0.05 ? '正好触价' : '还需涨 ' + Math.abs(gSell).toFixed(1) + '%'));
   var s = stopInfo(r);
   var soldOut = gSell !== null && gSell > 0.05;
   var sellEm = sellPx ? sellTip : (r.trail ? '需持仓峰值' : '');
+  var sellLabel = tp ? ('止盈+' + tp.tp + '%') : '卖出';
   var out = [];
 
   // 第一行：卖出价、止损价两个放大色块 + 醒目提示
   out.push('<span class="posline-top">' +
     '<span class="kpi k-sell' + (soldOut ? ' hit' : '') + '"' +
     (r.selldyn ? ' title="卖点 = ' + r.selldyn + ' 当日值，逐日滚动，不是固定价"' : '') +
-    '><i>卖出' + (r.selldyn ? '·' + r.selldyn : '') + '</i><b>' +
+    '><i>' + sellLabel + (r.selldyn ? '·' + r.selldyn : '') + '</i><b>' +
     (sellPx ? fmt(sellPx, pdec(r)) : '—') + '</b>' + (sellEm ? '<em>' + sellEm + '</em>' : '') + '</span>' +
     '<span class="kpi k-stop' + (s && s.breached ? ' breach' : '') + '"><i>' +
     (s && s.kind === 'ma60' ? '风控' : '止损') + '</i><b>' + (s ? fmt(s.px, pdec(r)) : '未设') + '</b>' +
