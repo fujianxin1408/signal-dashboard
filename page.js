@@ -427,12 +427,13 @@ function gapSellHtml(r) {
 
 function btText(bt) {
   if (!bt) return '';
-  const p = [];
-  if (bt.n) p.push(bt.n + ' 笔');
-  if (bt.win) p.push(bt.win.toFixed ? bt.win.toFixed(1) : bt.win);
   let s = '回测 ' + (bt.n || '—') + ' 笔 · 胜率 ' + fmt(bt.win, 1) + '% · 累计 ';
   s += (bt.total > 0 ? '+' : '') + fmt(bt.total, 0) + '%';
   if (bt.stop) s += ' · 止损 ' + bt.stop + '%';
+  // 样本少于 20 笔的策略统计可靠性弱，给个不刺眼的提示，别让人按胜率线性外推
+  if (bt.n && bt.n < 20) {
+    s += ' · <span style="color:#d98324">样本少</span>';
+  }
   return s;
 }
 

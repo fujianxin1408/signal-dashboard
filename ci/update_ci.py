@@ -290,31 +290,53 @@ def em_daily(symbol, days=400):
     return out
 
 
+# 腾讯域名冗余：新浪整站 403、东财对海外/云机房掐连接时，腾讯是唯一可达的源。
+# 但腾讯自己也有多个独立域名/前置层，任一挂掉可切下一个，避免「腾讯单点=全站单点」。
+# 2026-11-16 实测：三个报价域名、两个日线域名在当前环境均返回 200。
+_QT_QUOTE_HOSTS = ("qt.gtimg.cn", "sqt.gtimg.cn", "web.sqt.gtimg.cn")
+_QT_DAILY_HOSTS = (
+    "https://web.ifzq.gtimg.cn/appstock/app/kline/kline",
+    "https://proxy.finance.qq.com/ifzqgtimg/appstock/app/kline/kline",
+)
+
+
 def qt_quote(symbol):
-    """腾讯实时报价（备用），返回 (price, high, low, prev_close)"""
-    txt = get("https://qt.gtimg.cn/q=%s" % symbol, encoding="gbk").text
-    m = re.search(r'"([^"]*)"', txt)
-    if not m:
-        raise RuntimeError("腾讯报价解析失败")
-    f = m.group(1).split("~")
-    if len(f) < 35:
-        raise RuntimeError("腾讯报价字段不足")
-    price = float(f[3]) or float(f[4])
-    return price, float(f[33]) or price, float(f[34]) or price, float(f[4])
+    """腾讯实时报价，三个域名依次尝试，返回 (price, high, low, prev_close)。"""
+    last = None
+    for host in _QT_QUOTE_HOSTS:
+        try:
+            txt = get("https://%s/q=%s" % (host, symbol), encoding="gbk", tries=2).text
+            m = re.search(r'"([^"]*)"', txt)
+            if not m:
+                raise RuntimeError("解析失败")
+            f = m.group(1).split("~")
+            if len(f) < 35:
+                raise RuntimeError("字段不足")
+            price = float(f[3]) or float(f[4])
+            return price, float(f[33]) or price, float(f[34]) or price, float(f[4])
+        except Exception as e:  # noqa: BLE001
+            last = e
+            log("  [腾讯报价域名 %s 不可用] %s" % (host, str(e)[:45]))
+    raise RuntimeError("腾讯报价全部域名失败: %s" % last)
 
 
 def qt_daily(symbol, days=400):
-    """腾讯日线（不复权），第三备用源。签名与 sina_daily 相同。
-    2026-11 加：沙箱与部分云机房访问新浪整站 403、访问东财直接被掐连接，
-    只剩腾讯能通；字段口径同样是不复权，收盘价即交易所收盘。"""
-    url = ("https://web.ifzq.gtimg.cn/appstock/app/kline/kline"
-           "?param=%s,day,,,%d" % (symbol, max(int(days), 60)))
-    js = json.loads(get(url).text)
-    kl = ((js or {}).get("data") or {}).get(symbol, {}).get("day") or []
-    if not kl:
-        raise RuntimeError("腾讯日线为空")
-    # 日期,开,收,高,低,量
-    return [(f[0][:10], float(f[1]), float(f[2]), float(f[3]), float(f[4])) for f in kl]
+    """腾讯日线（不复权），两个域名依次尝试。签名与 sina_daily 相同。
+    字段口径同样是不复权，收盘价即交易所收盘。"""
+    last = None
+    for base in _QT_DAILY_HOSTS:
+        try:
+            url = "%s?param=%s,day,,,%d" % (base, symbol, max(int(days), 60))
+            js = json.loads(get(url, tries=2).text)
+            kl = ((js or {}).get("data") or {}).get(symbol, {}).get("day") or []
+            if not kl:
+                raise RuntimeError("日线为空")
+            # 日期,开,收,高,低,量
+            return [(f[0][:10], float(f[1]), float(f[2]), float(f[3]), float(f[4])) for f in kl]
+        except Exception as e:  # noqa: BLE001
+            last = e
+            log("  [腾讯日线域名 %s 不可用] %s" % (base.split("//")[1].split("/")[0], str(e)[:45]))
+    raise RuntimeError("腾讯日线全部域名失败: %s" % last)
 
 
 # ---------------- 前复权日线（高股息标的专用） ----------------
@@ -1069,6 +1091,15 @@ def main():
     log("完成 %s%s | 买%d 卖%d 等%d | 失败 %d"
         % (slot, "(保留原档)" if keep_old else "", counts["buy"], counts["sell"],
            counts["wait"], len(errors)))
+
+    # 抓取失败告警：GitHub Actions 会把 ::warning:: 渲染成注解，任务仍成功但一眼能看见。
+    # 单只偶发失败给明细；失败数 ≥3（约 10%）再给一条汇总，便于发现数据源整体故障。
+    if errors:
+        log("::warning::抓取失败 %d/%d 只：%s"
+            % (len(errors), len(WATCH), "；".join(errors[:6])))
+        if len(errors) >= 3:
+            log("::warning::数据源可能整体故障（%d 只失败），请检查新浪/腾讯接口可达性"
+                % len(errors))
     return 0
 
 
