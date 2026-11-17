@@ -368,8 +368,16 @@ function toast(msg) {
 }
 
 
-const SLOT_KEYS = ['live', '1505'];
-const SLOT_NAME = { live: '实时', '1505': '15:05' };
+// 视图只有两种：base = 定时任务写下的快照，live = 点「更新」后按实时价重算的结果。
+// data.json 里的档位名（1505 / live）是后端的排程细节，页面不再拿它做 tab。
+function baseSlot() {
+  const s = DATA.slots || {};
+  return s[DATA.updated_slot] || s.live || s['1505'] || s[Object.keys(s)[0]] || null;
+}
+
+function viewSlot() {
+  return (CUR === 'live' && DATA.slots.live) ? DATA.slots.live : baseSlot();
+}
 
 // 触发股票排前面；同档位内按「离买点/卖点还差多少」排序
 function sortRows(rows) {
@@ -754,31 +762,18 @@ function render() {
        ':' + LIVE_AT.slice(12, 14) + '　基准 ' + (D.updated || '—'))
     : (D.updated ? '更新 ' + D.updated : '');
 
-  // 固定三个时点，第一个是刷新按钮
+  // 只有一个入口：快照为基准，点「更新」按实时价重算。
+  // 不再摆「15:05 / 实时」两个 tab——档位是排程细节，用户只看数据新不新。
   const tabs = document.getElementById('tabs');
-  tabs.innerHTML = SLOT_KEYS.map(k => {
-    if (k === 'live') {
-      const cls = 'tab tab-live' + (CUR === k ? ' on' : '') + (REFRESHING ? ' busy' : '');
-      return '<div class="' + cls + '" id="btnLive">' +
-        (REFRESHING ? '刷新中…' : '更新') + '</div>';
-    }
-    const s = D.slots[k];
-    const cls = 'tab' + (k === CUR ? ' on' : '') + (s ? '' : ' off');
-    const t = s ? s.ts : '';
-    return '<div class="' + cls + '" data-k="' + k + '">' + SLOT_NAME[k] +
-      (t ? '<span class="tabts">' + t + '</span>' : '') + '</div>';
-  }).join('');
-
-  tabs.querySelectorAll('.tab[data-k]').forEach(el => {
-    el.onclick = () => { CUR = el.dataset.k; render(); };
-  });
+  tabs.innerHTML = '<div class="tab tab-live' + (REFRESHING ? ' busy' : '') +
+    '" id="btnLive">' + (REFRESHING ? '刷新中…' : '更新') + '</div>';
   const btn = document.getElementById('btnLive');
   if (btn) btn.onclick = refreshLive;
 
-  const slot = D.slots[CUR];
+  const slot = viewSlot();
   if (!slot) {
     document.getElementById('list').innerHTML =
-      '<div class="card"><div class="sep">该时点还没有数据</div></div>';
+      '<div class="card"><div class="sep">还没有数据，点「更新」按实时价算一次</div></div>';
     return;
   }
 
@@ -786,17 +781,14 @@ function render() {
   const cc = { buy: 0, sell: 0, wait: 0 };
   slot.rows.forEach(function (r) { const s = effStatus(r); cc[s] = (cc[s] || 0) + 1; });
   const hitN = (cc.buy || 0) + (cc.sell || 0);
-  let stamp = slot.ts || '';
-  if (slot.target && slot.ts && slot.ts !== slot.target) {
-    const sk = (slot.skew === null || slot.skew === undefined) ? null : Number(slot.skew);
-    // 跨交易日（周末/节假日）不能再说「延迟 X 分」：那是按当天钟点算的差，
-    // 隔一天看就会变成「延迟 76 分」这种明显错的读数，直接标成哪天的收盘档
-    if (D.date && D.date !== TODAY) {
-      stamp = slot.target + ' 档 · ' + D.date + ' 收盘';
-    } else {
-      stamp = slot.target + ' 档 · 实际 ' + slot.ts + ' 生成' +
-        (sk === null ? '' : '（' + (sk > 0 ? '延迟 ' : '提前 ') + Math.abs(sk) + ' 分）');
-    }
+  // 时间戳只说「几点抓的」，不报档位名和延迟分钟数
+  let stamp = '';
+  if (D.date && D.date !== TODAY) {
+    stamp = D.date + ' 收盘';
+  } else if (slot.live) {
+    stamp = slot.ts ? '实时 ' + slot.ts : '实时重算';
+  } else if (slot.ts) {
+    stamp = slot.ts + ' 抓取';
   }
 
   const sorted = sortRows(slot.rows);
@@ -818,7 +810,7 @@ function render() {
     '<span>卖出 <b class="c-sell">' + (cc.sell || 0) + '</b></span>' +
     '<span>等待 <b class="c-wait">' + (cc.wait || 0) + '</b></span>' +
     '<span>持仓 <b class="c-held">' + heldRows.length + '</b></span>' +
-    '</div><div class="barr">' + stamp + ' · 共 ' + slot.rows.length + ' 只' +
+    '</div><div class="barr">' + (stamp ? stamp + ' · ' : '') + '共 ' + slot.rows.length + ' 只' +
     (hitN ? ' · 触发 ' + hitN : '') + '</div></div>' +
     '<div class="row hd">' +
     '<div>名称</div><div>现价</div><div class="hide-m">RSI14</div><div class="hide-m">BIAS6</div>' +
@@ -886,7 +878,8 @@ async function refreshLive(opts) {
   if (WORKER_URL) fetch(WORKER_URL, { method: 'POST' }).catch(function () {});
 
   try {
-    const base = DATA.slots.live || DATA.slots[DATA.updated_slot];
+    // 基准永远取最新的那份快照，别被过期的 live 档带跑
+    const base = baseSlot();
     const rows0 = (base && base.rows) || [];
     if (!rows0.length) throw new Error('没有基准数据');
     const usable = rows0.filter(function (r) { return r.hist && r.hist.length >= 20; });
@@ -952,7 +945,7 @@ async function refreshLive(opts) {
 async function pullLatest() {
   try {
     const r = await fetch('./data.json?t=' + Date.now(), { cache: 'no-store' });
-    if (r.ok) { DATA = await r.json(); LIVE_AT = ''; }   // 退回快照，清掉实时标记
+    if (r.ok) { DATA = await r.json(); LIVE_AT = ''; CUR = 'base'; }   // 退回快照，清掉实时标记
   } catch (e) { /* 保留旧数据 */ }
 }
 
@@ -988,15 +981,12 @@ function minsToOpen() {
   return add * 1440 + 570 - hm;
 }
 
-// 默认档位：交易时段优先显示「实时」，收盘后显示最近一个时点档
-const _ks = Object.keys(DATA.slots || {});
-CUR = (isTradingTime() && _ks.includes('live')) ? 'live'
-    : (_ks.includes('1505') ? '1505' : (_ks[0] || 'live'));
+// 视图默认看快照（定时任务写下的那一份）；交易时段打开会自动重算成实时视图
+CUR = 'base';
 render();
 
 // 交易时段打开页面：立刻按实时价重算一次，省得每次都要手点。
-// 注意不能判断 _ks.includes('live')——data.json 只存 1505 档，live 是前端派生出来的，
-// 用它当条件会让「打开即刷新」永远不成立。
+// 不必判断快照里有没有 live 档——baseSlot() 会自己找最新的那份。
 if (isTradingTime()) {
   setTimeout(function () {
     refreshLive({ silent: true });
