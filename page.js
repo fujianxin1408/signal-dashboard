@@ -537,13 +537,18 @@ function effStatus(r) {
   return (!hasCost(r) && r.status === 'sell') ? 'wait' : r.status;
 }
 
-// 风控价：优先回测硬止损 bt.stop；没有硬止损的票（如中国平安）沿用 MA60 趋势线
+// 风控价：优先用回测硬止损 bt.stop（相对成本）。
+// 没有硬止损的票分两类：
+//   ① 趋势票（买入条件含 MA60，如中国平安「MA60上」）——跌破 MA60 = 趋势假设被推翻，沿用 MA60 当风控线；
+//   ② 超跌反弹票（买入条件是 RSI/BIAS 深跌，如复星医药 RSI<30、中联重科、金山办公、珀莱雅、立讯等）——
+//      买入时股价本就在 MA60 下方（这甚至是买入前提），若也套 MA60 会「刚买入就报已跌破」，
+//      逻辑完全反了。这类票既不设硬止损，就诚实显示「未设」，靠超跌反弹本身离场，不造风控假象。
 function stopInfo(r) {
   var cost = posCost(r.code), px = Number(r.price);
   var sp = Number((r.bt && r.bt.stop) || 0);
   var target, kind;
   if (sp > 0) { target = cost * (1 - sp / 100); kind = 'stop'; }
-  else if (r.ma60) { target = Number(r.ma60); kind = 'ma60'; }
+  else if (r.ma60 && /MA60/.test(r.buy_rule || '')) { target = Number(r.ma60); kind = 'ma60'; }
   else return null;
   var dist = (target / px - 1) * 100;        // 负 = 还要跌才到
   return { px: target, kind: kind, dist: dist, breached: dist > -0.05 };
