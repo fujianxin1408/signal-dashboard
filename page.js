@@ -498,36 +498,29 @@ function savePos() {
 
 try { POS = JSON.parse(localStorage.getItem(POS_KEY) || '{}') || {}; } catch (e) { POS = {}; }
 
-/* 旧版只存成本价：{code: 12.34}。新版存 {code:{cost,qty}}。
- * 载入时归一一次，用户以前填过的成本不会丢，也不必手动迁移。 */
+/* 只需成本价：旧版存 {code: 12.34}，后来存过 {code:{cost,qty}}。
+ * 现在只用 cost，载入时统一成 {code:{cost}}，旧数据不丢、也不必手动迁移。 */
 (function () {
   var changed = false;
   Object.keys(POS).forEach(function (k) {
     var v = POS[k];
     if (typeof v === 'number' || typeof v === 'string') {
-      POS[k] = { cost: Number(v) || 0, qty: 0 }; changed = true;
+      POS[k] = { cost: Number(v) || 0 }; changed = true;
     } else if (!v || typeof v !== 'object') {
       delete POS[k]; changed = true;
     } else {
-      if (v.cost === undefined) { v.cost = 0; changed = true; }
-      if (v.qty === undefined) { v.qty = 0; changed = true; }
+      var c = Number(v.cost) || 0;
+      if (v.qty !== undefined || v.cost !== c) { POS[k] = { cost: c }; changed = true; }
     }
   });
   if (changed) savePos();
 })();
 
 function posCost(code) { var p = POS[code]; return p ? (Number(p.cost) || 0) : 0; }
-function posQty(code) { var p = POS[code]; return p ? (Number(p.qty) || 0) : 0; }
-function yuan(v) { return '¥' + Math.round(v).toLocaleString('zh-CN'); }
-function money(v) {
-  if (!isFinite(v)) return '—';
-  var a = Math.abs(Math.round(v)).toLocaleString('zh-CN');
-  return (v > 0 ? '+' : (v < 0 ? '−' : '')) + '¥' + a;
-}
 
 /* ============ 持仓视图：填了成本价就切换重点 ============
- * 有成本 = 已持仓，不用再提醒买入价；重点变成「什么时候卖」和「什么时候止损」。
- * 成本价、股数纯前端 localStorage，输入即时生效，不上传、不进 data.json。
+ * 有成本 = 已持仓，不用再提醒买入价；重点只有两件事：卖点在哪、止损在哪。
+ * 不记股数、不算金额，避免多填一堆东西。成本价纯前端 localStorage，不上传、不进 data.json。
  */
 function hasCost(r) { return posCost(r.code) > 0 && Number(r.price) > 0; }
 
@@ -630,34 +623,11 @@ function sellCellHtml(r) {
     '</span>' + gapSellHtml(r);
 }
 
-// 分组合计：只把填了股数的持仓计入，没填股数就提示怎么开
-function heldSummaryHtml(list) {
-  var sum = 0, mv = 0, hasQty = false;
-  list.forEach(function (r) {
-    var q = posQty(r.code);
-    if (q > 0) {
-      hasQty = true;
-      sum += (Number(r.price) - posCost(r.code)) * q;
-      mv += Number(r.price) * q;
-    }
-  });
-  if (!hasQty) return '填股数可看合计盈亏';
-  return '合计浮盈亏 <b class="' + (sum >= 0 ? 'up' : 'down') + '">' + money(sum) +
-    '</b> · 市值 <b>' + yuan(mv) + '</b>';
-}
-function paintHeldSummary() {
-  var el = document.getElementById('heldSum');
-  if (!el) return;
-  var list = Object.keys(ROWREF).map(function (k) { return ROWREF[k]; }).filter(hasCost);
-  el.innerHTML = heldSummaryHtml(list);
-}
-
 function posInner(r) {
   var cost = posCost(r.code);
   if (!cost || !r.price) return '';
-  var px = Number(r.price), qty = posQty(r.code);
+  var px = Number(r.price);
   var pnl = (px / cost - 1) * 100;
-  var word = pnl > 0.05 ? '浮盈' : (pnl < -0.05 ? '浮亏' : '持平');
   var tp = tpInfo(r);
   var sellPx = tp ? tp.px : (r.sell ? Number(r.sell) : null);
   // 距卖点与卖点列共用 gap_sell 口径（后端 gap()：以卖点为分母，正=已超卖点），
@@ -689,41 +659,23 @@ function posInner(r) {
        : (soldOut ? '<span class="warn sell">价格已到卖点，可考虑分批了结</span>' : '')) +
     '</span>');
 
-  // 第二行：成本 / 浮盈 / 到卖点 / 金额 / 股数输入 / 清空
+  // 第二行：只留成本（附一个相对成本的涨跌做参照，不算金额、不要股数）
   var signPct = function (v) {
     return (v > 0.05 ? '+' : (v < -0.05 ? '−' : '')) + Math.abs(v).toFixed(1) + '%';
   };
-  var meta = '<span class="posmeta">成本 <b>' + fmt(cost, pdec(r)) + '</b> · ' + word +
-    ' <b class="' + (pnl > 0.05 ? 'up' : (pnl < -0.05 ? 'down' : '')) + '">' +
-    signPct(pnl) + '</b>';
-  if (sellPx) {
-    var gain = (sellPx / cost - 1) * 100;
-    meta += ' · 到卖点 <b class="' + (gain >= 0 ? 'up' : 'down') + '">' +
-      signPct(gain) + '</b>';
-    if (gain < -0.05 && gSell !== null && gSell < -0.05) meta += ' <span class="dim">（低于成本，等它不划算）</span>';
-  }
-  if (qty > 0) {
-    var amt = (px - cost) * qty;
-    meta += ' · 浮动盈亏 <b class="money ' + (amt >= 0 ? 'up' : 'down') + '">' + money(amt) + '</b>' +
-      ' · 市值 <b>' + yuan(px * qty) + '</b>';
-    if (sellPx) meta += ' · 到卖点金额 <b class="money">' + money((sellPx - cost) * qty) + '</b>';
-  }
-  meta += '</span>';
-
-  out.push('<span class="posline-bot">' + meta +
+  out.push('<span class="posline-bot">' +
+    '<span class="posmeta">成本 <b>' + fmt(cost, pdec(r)) + '</b> · 较成本 ' +
+    '<b class="' + (pnl > 0.05 ? 'up' : (pnl < -0.05 ? 'down' : '')) + '">' + signPct(pnl) + '</b></span>' +
     '<span class="posact">' +
-    '<span class="qbox">股数 <input class="qin" inputmode="numeric" autocomplete="off" ' +
-    'data-code="' + r.code + '" value="' + (qty > 0 ? qty : '') + '" placeholder="0"></span>' +
     '<button type="button" class="clrrow" data-code="' + r.code + '">清空持仓</button>' +
     '</span></span>');
   return out.join('');
 }
 
 // 替换本行信息条后把焦点与光标还回原输入框，避免输入被打断
-function updateRowLive(r, row, code, cls) {
+function updateRowLive(r, row, code) {
   var ae = document.activeElement, sPos = null, ePos = null;
   if (ae && ae.dataset && ae.dataset.code === code) {
-    cls = ae.classList.contains('qin') ? 'qin' : 'pin';
     try { sPos = ae.selectionStart; ePos = ae.selectionEnd; } catch (e) {}
   }
   var line = row.querySelector('.posline');
@@ -734,42 +686,37 @@ function updateRowLive(r, row, code, cls) {
   if (sc) sc.innerHTML = sellCellHtml(r);
   row.classList.toggle('held', hasCost(r));
   row.classList.toggle('breached', isBreached(r));
-  var nl = row.querySelector('.' + cls + '[data-code="' + code + '"]');
+  var nl = row.querySelector('.pin[data-code="' + code + '"]');
   if (nl) { try { nl.focus(); if (sPos !== null) nl.setSelectionRange(sPos, ePos); } catch (e) {} }
 }
 
 // 持仓状态变了要整页重绘才能归组；重绘后同样把焦点还回去
-function renderKeepFocus(code, cls) {
+function renderKeepFocus(code) {
   var ae = document.activeElement, sPos = null, ePos = null;
   if (ae && ae.dataset && ae.dataset.code === code) {
-    cls = ae.classList.contains('qin') ? 'qin' : 'pin';
     try { sPos = ae.selectionStart; ePos = ae.selectionEnd; } catch (e) {}
   }
   render();
-  var nl = document.querySelector('.' + cls + '[data-code="' + code + '"]');
+  var nl = document.querySelector('.pin[data-code="' + code + '"]');
   if (nl) { try { nl.focus(); if (sPos !== null) nl.setSelectionRange(sPos, ePos); } catch (e) {} }
 }
 
-// 输入即算：只改这一行的信息条，不重绘整页——否则输入框会丢焦点
+// 输入成本价即算：只改这一行的信息条，不重绘整页——否则输入框会丢焦点
 function onPosInput(e) {
   var el = e.target;
   if (!el || !el.classList || !el.dataset) return;
-  var isQty = el.classList.contains('qin');
-  if (!isQty && !el.classList.contains('pin')) return;
+  if (!el.classList.contains('pin')) return;
   var code = el.dataset.code;
   var r = ROWREF[code];
   if (!code || !r) return;
   var v = parseFloat(String(el.value).replace(/[^\d.]/g, ''));
   if (!(v > 0)) v = 0;
   var wasHeld = hasCost(r);
-  if (!POS[code]) POS[code] = { cost: 0, qty: 0 };
-  if (isQty) POS[code].qty = Math.floor(v); else POS[code].cost = v;
-  if (!POS[code].cost && !POS[code].qty) delete POS[code];
+  if (v > 0) POS[code] = { cost: v }; else delete POS[code];
   savePos();
-  if (hasCost(r) !== wasHeld) { renderKeepFocus(code, isQty ? 'qin' : 'pin'); return; }
+  if (hasCost(r) !== wasHeld) { renderKeepFocus(code); return; }
   var row = el.closest ? el.closest('.row') : null;
-  if (row) updateRowLive(r, row, code, isQty ? 'qin' : 'pin');
-  paintHeldSummary();
+  if (row) updateRowLive(r, row, code);
 }
 document.addEventListener('input', onPosInput);
 
@@ -781,7 +728,7 @@ document.addEventListener('click', function (e) {
     var code = t.dataset.code;
     var nm = ROWREF[code] ? ROWREF[code].name : code;
     delete POS[code]; savePos();
-    renderKeepFocus(code, 'pin');
+    renderKeepFocus(code);
     toast('已清空 ' + nm + ' 的持仓');
   } else if (t.classList.contains('clrall')) {
     var n = Object.keys(POS).length;
@@ -889,7 +836,6 @@ function render() {
     if (key !== lastKey) {
       if (held) {
         html += '<div class="sep s-held">我的持仓 <span class="cnt">· ' + heldRows.length + ' 只</span>' +
-          '<span class="hsum" id="heldSum">' + heldSummaryHtml(heldRows) + '</span>' +
           '<button type="button" class="clrall">清空全部</button></div>';
       } else {
         const t = { buy: '买入触发', sell: '卖出触发', wait: '其余观察' }[st];

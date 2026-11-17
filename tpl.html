@@ -85,11 +85,12 @@ details.legend[open] summary::before{content:'▾ '}
 .posline:empty{display:none}
 .posline b{font-variant-numeric:tabular-nums;font-weight:600}
 .posline .dim{color:#aaa}
-/* ---- 持仓视图：卖出 / 止损放大置顶 ---- */
-.posline .kpi{display:inline-flex;align-items:baseline;gap:5px;padding:2px 9px;margin:2px 7px 2px 0;border-radius:4px;white-space:nowrap;vertical-align:middle}
-.posline .kpi i{font-style:normal;font-size:11px;opacity:.8}
-.posline .kpi b{font-size:15px;font-weight:700}
-.posline .kpi em{font-style:normal;font-size:11.5px;opacity:.85}
+/* ---- 持仓视图：卖出 / 止损放大置顶（填成本价后只看这两个点位）---- */
+.posline .kpi{display:inline-flex;align-items:baseline;gap:6px;padding:3px 12px;margin:3px 8px 3px 0;
+  border-radius:5px;white-space:nowrap;vertical-align:middle;box-shadow:0 1px 2px rgba(0,0,0,.05)}
+.posline .kpi i{font-style:normal;font-size:11.5px;opacity:.85}
+.posline .kpi b{font-size:20px;font-weight:700;letter-spacing:-.2px}
+.posline .kpi em{font-style:normal;font-size:12px;opacity:.9}
 .posline .k-sell{background:#e8f5e9;color:#2e7d32}
 .posline .k-stop{background:#fff4e0;color:#b26a00}
 .posline .posmeta{display:inline-block;color:#888;vertical-align:middle}
@@ -101,12 +102,10 @@ details.legend[open] summary::before{content:'▾ '}
 .row.held .buycol{color:#b26a00}
 .row.held .sellcol{color:#2e7d32}
 .k-breach{color:#c0392b}
-/* ---- 持仓视图增强：分组 / 金额 / 股数 / 跌破提醒 ---- */
+/* ---- 持仓视图增强：分组 / 跌破提醒 ---- */
 .c-held{color:#0a8f5b}
 .sep.s-held{color:#0a8f5b;background:#f7fcf9}
 .sep.s-held::before{background:#0a8f5b}
-.sep .hsum{margin-left:8px;color:#8a8f98;font-weight:400;letter-spacing:0;font-variant-numeric:tabular-nums}
-.sep .hsum b{font-weight:600}
 .sep .clrall,.posline .clrrow{background:none;border:1px solid #e2e4e8;color:#9a9ea6;font-size:11.5px;border-radius:4px;padding:1px 7px;cursor:pointer;font-family:inherit;white-space:nowrap}
 .sep .clrall{margin-left:auto}
 .posline .clrrow{margin-left:8px}
@@ -118,11 +117,6 @@ details.legend[open] summary::before{content:'▾ '}
 .posline .kpi.hit{background:#dcefe0;color:#1b6b34}
 .posline .kpi.breach{background:#fde8e8;color:#c0392b}
 .posline .posact{display:inline-flex;align-items:center;gap:6px;margin-left:10px;padding-left:10px;border-left:1px solid #e0e2e6;vertical-align:middle}
-.posline .qbox{display:inline-flex;align-items:center;gap:4px;color:#888;vertical-align:middle}
-.qin{width:64px;box-sizing:border-box;border:1px solid #e6e7ea;border-radius:4px;background:#fff;padding:1px 6px;font-size:12px;text-align:right;color:#333;font-variant-numeric:tabular-nums;font-family:inherit}
-.qin:focus{outline:none;border-color:#0a8f5b}
-.qin::placeholder{color:#c8cad0}
-.posline .money{font-variant-numeric:tabular-nums;font-weight:600}
 .row.breached{background:#fdf2f1;box-shadow:inset 3px 0 0 #c0392b}
 
 .nw{white-space:nowrap}
@@ -180,10 +174,10 @@ details.legend[open] summary::before{content:'▾ '}
         <b>买点口径</b>：圣农发展、鲁泰A 的买点按「5 个交易日匀速跌到位」反解（策略卡同口径）——圣农若明天一天暴跌到 15.51 也会触发，但阴跌时 6 日均线跟着下移，得跌到 14.71 才满足 BIAS&lt;−7%；鲁泰A 同理（单日口径 5.68 vs 阴跌 5.55）。看板取后者，避免在阴跌里提前进场。<br>
         <b>止损列「未设」</b>：部分标的的策略本身不设止损（如 515080 红利ETF、对照它选出的成都银行/江苏银行/立讯精密/华能国际/新奥股份，以及伊利/金山/珀莱雅/复星医药/中联重科）——它们在 RSI 深超卖区才买、靠均值回归离场，紧止损反而会把便宜筹码洗在地板上，这些票止损列如实显示「未设」，<b>不会拿上方的 MA60 冒充风控线制造「刚买入就跌破」的假警报</b>。只有买点条件本身要求股价站在 MA60 上方的趋势票（如中国平安「MA60上」），跌破 MA60 才算趋势假设被推翻、才用 MA60 当风控线。<br>
         <b>更新</b>＝浏览器直接拉实时报价本地重算，约 1 秒出结果；交易时段内每 10 分钟自动刷一次，收盘、午休、周末不发任何请求。点页头绿色标签可开关。<br>
-        <b>持仓</b>列填你的成本价，自动算浮盈、涨到卖点还能赚多少、止损位与距离。数据只存在本机浏览器（localStorage），不上传、不同步。<br>
-        <b>持仓视图</b>：填了成本价的行会自动切换——不再提示买点价，第 5 列改显<b>止损价</b>，下方信息条把<b>卖出价</b>与<b>止损价</b>放大置顶，成本与浮盈退到次要位置；清空成本价即恢复原视图。<br>
+        <b>持仓</b>列只填一个<b>成本价</b>，行内直接给出<b>卖出点位</b>与<b>止损点位</b>（含还差多少 %），不记股数、不算金额。数据只存在本机浏览器（localStorage），不上传、不同步。<br>
+        <b>持仓视图</b>：填了成本价的行会自动切换——不再提示买点价，第 5 列改显<b>止损价</b>，下方信息条把<b>卖出价</b>与<b>止损价</b>放大置顶并给出距离，成本价退到次要位置；清空成本价即恢复原视图。<br>
         <b>空仓不提卖</b>：没填成本价的行一律不当持仓看——卖出条件即使成立也不显示「卖出」标签、不标红、不计数，<b>卖点列直接给「—」</b>，价格、距离、均线小标都不给；填上成本价后卖点价、距离与持仓视图的卖出/止损色块会一起出现。<b>微信推送也默认不再发「卖出触发」</b>：持仓只存在本机浏览器，服务端不知道谁持股，与其对错的人乱提醒，不如只报买入，卖出统一交给看板。<br>
-        <b>持仓增强</b>：持仓的行集中到最上方「我的持仓」分组，按「跌破止损 → 已到卖点 → 距卖点远近」排序，页头显示持仓只数；填<b>股数</b>后能看到浮动盈亏金额、市值、到卖点金额与分组合计；跌破止损时整行标红并提示按纪律离场，价格到卖点提示分批了结。行内「清空持仓」或分组右侧「清空全部」可一键移除，成本与股数仍只存本机浏览器。<br>
+        <b>持仓分组</b>：持仓的行集中到最上方「我的持仓」分组，按「跌破止损 → 已到卖点 → 距卖点远近」排序，页头显示持仓只数；跌破止损时整行标红并提示按纪律离场，价格到卖点提示分批了结。行内「清空持仓」或分组右侧「清空全部」可一键移除，成本价仍只存本机浏览器。<br>
         <b>大盘门控</b>：行内标注「仅大盘多头时有效」的票，沪深300 没站上 MA60 就只显示等待；标注「仅大盘空头（HS300&lt;MA60）时有效」的票（诺力股份）相反，指数转多头时哪怕价格到位也不买，信号列显示「待大盘转空」。
       </div>
     </details>
