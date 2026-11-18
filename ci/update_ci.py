@@ -274,8 +274,9 @@ UA = {
     "Referer": "https://finance.sina.com.cn/",
 }
 
-SLOT_TARGET = {"1451": "14:51", "1505": "15:05", "live": None}
-SLOT_LABEL = {"live": "实时刷新", "1451": "14:51 盘中", "1505": "15:05 收盘"}
+SLOT_TARGET = {"1451": "14:51", "1505": "15:05", "live": None, "intraday": None}
+SLOT_LABEL = {"live": "实时刷新", "1451": "14:51 盘中", "1505": "15:05 收盘",
+              "intraday": "盘中扫描"}
 
 
 def log(*a):

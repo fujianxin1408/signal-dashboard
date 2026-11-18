@@ -4,11 +4,13 @@
 
 设计要点
 --------
-· **只推 15:05 收盘档**（14:51 盘中档已于 2026-11-11 停用）。live 档（手动刷新、Actions 补跑）一律不推，
-  否则每点一次页面上的「更新」就会响一次。
-· **去重靠 notify_state.json**：同一天 + 同一档 + 同一只票 + 同一方向只推一次。
-  同一只票同一天只响一声，且是收盘确认过的，
-  该响两声就响两声，但重复执行同一档不会重复响。
+· **推 intraday（盘中，每 15 分钟扫描）与 1505（收盘确认）两个档**。live 档（手动刷新、补跑）
+  一律不推，否则每点一次页面上的「更新」就会响一次。
+· **盘中档只在真实交易时段推**（09:30-11:30 / 13:00-15:00，按脚本实际运行时刻判断）：
+  GitHub cron 常延迟，计划 09:15 的任务可能 09:50 才跑（那时在时段内、照推），
+  计划 11:45 的拖到午休才跑就跳过；收盘档不受此限，照常兜底。
+· **去重靠 notify_state.json，按天跨档**：同一天 + 同一只票 + 同一方向只推一次，
+  不管盘中还是收盘。盘中推过，收盘就不再重复响；只有盘中没出现过的新信号才在收盘补推。
 · **推送失败不让 workflow 变红**：数据早就提交了，通知只是附加动作。
   失败打 ::warning:: 留在运行日志里；没配 token 也只告警、不报错。
 · **默认不推卖出信号**：持仓只存在浏览器 localStorage，服务端无从得知谁持股、谁空仓，
@@ -31,6 +33,7 @@ WXPUSHER_TOKEN   可选，WxPusher 应用 appToken（微信扫码即关注公众
 WXPUSHER_UID     可选，接收人 UID，多个用逗号分隔；留空则推给该应用全部订阅者
 HEARTBEAT        默认 1，设 0 关闭周五心跳
 NOTIFY_SELL      默认 0（不推卖出信号），设 1 恢复「卖出触发」段落与标题里的「N 卖」
+TRADING_ONLY     默认 1，盘中档只在交易时段推；设 0 关闭该限制（补跑/调试用）
 STATE_FILE       默认 <repo>/notify_state.json
 """
 import datetime as dt
@@ -46,11 +49,20 @@ DATA_FILE = os.environ.get("DATA_FILE") or os.path.join(ROOT, "data.json")
 STATE_FILE = os.environ.get("STATE_FILE") or os.path.join(ROOT, "notify_state.json")
 UA = {"User-Agent": "signal-notify/1.0"}
 
-SLOT_NAME = {"1451": "盘中预警", "1505": "收盘确认"}
+SLOT_NAME = {"intraday": "盘中预警", "1505": "收盘确认"}
 KEEP_DAYS = 5
 # 持仓不上传服务端，无法逐票判断持股与否，故默认整段不发卖出提醒。
 # 设 NOTIFY_SELL=1 可恢复：那时推送不区分持仓，与旧版行为一致。
 NOTIFY_SELL = os.environ.get("NOTIFY_SELL", "0") not in ("0", "false", "False", "")
+# 盘中档只在交易时段推，避免午休/收盘后的静态价重复打扰；收盘档不受此限。
+TRADING_ONLY = os.environ.get("TRADING_ONLY", "1") not in ("0", "false", "False", "")
+
+
+def in_trading_hours(now):
+    """按北京时间判断是否在 A 股连续交易时段（含边界整点）。
+    09:30-11:30 / 13:00-15:00。GitHub cron 常延迟，用实际运行时刻而非计划时点。"""
+    hm = now.hour * 60 + now.minute
+    return (9 * 60 + 30 <= hm <= 11 * 60 + 30) or (13 * 60 <= hm <= 15 * 60)
 
 
 def log(*a):
@@ -250,8 +262,8 @@ def build(rows, slot, data):
     parts = ["### %s · %d 买%s" % (kind, len(buys), tail),
              "%s　沪深300 %s（%s）" % (data.get("date", ""), num(mk.get("idx"), 1),
                                       "多头" if mk.get("bull") else "空头")]
-    if slot == "1451":
-        parts.append("**盘中价推算，收盘可能变**——先准备好，别急着下单，15:05 会给确认。")
+    if slot == "intraday":
+        parts.append("**盘中实时价触发，收盘前可能反复**——先关注，最终以 15:05 收盘确认为准。同一只票当天只响一次。")
 
     if buys:
         parts.append("**— 买入触发 —**")
@@ -342,7 +354,12 @@ def main():
 
     slot = data.get("updated_slot") or ""
     if slot not in SLOT_NAME:
-        log("档位 %r 不属于 15:05，跳过提醒" % slot)
+        log("档位 %r 不是盘中/收盘档，跳过提醒" % slot)
+        return 0
+    # 盘中档在午休/收盘后不推：那时抓的是静态价，信号要么已推过、要么等收盘档确认。
+    # 收盘档不受此限——它本就是收盘后才跑，必须兜底。
+    if slot == "intraday" and TRADING_ONLY and not in_trading_hours(_now):
+        log("盘中档运行于非交易时段 %s，跳过推送（收盘档会兜底）" % _now.strftime("%H:%M"))
         return 0
     payload = (data.get("slots") or {}).get(slot) or {}
     label = payload.get("label") or ""
@@ -353,7 +370,19 @@ def main():
     rows = payload.get("rows") or []
     state = load_state()
     day = data.get("date") or dt.date.today().isoformat()
-    sent_today = state.setdefault(day, {}).setdefault(slot, [])
+    # 按天跨档去重：同一天同一只票同一方向只推一次，盘中推过收盘就不再响。
+    # 兼容旧格式：旧版是 {day: {slot: [key]}}，新版是 {day: [key]}。
+    bucket = state.get(day)
+    if isinstance(bucket, dict):
+        old_keys = []
+        for keys in bucket.values():
+            for k in keys:
+                if k not in old_keys:
+                    old_keys.append(k)
+        state[day] = old_keys
+        sent_today = old_keys
+    else:
+        sent_today = state.setdefault(day, [])
 
     # 默认只让买入信号进推送：卖出信号连去重键都不记，避免「只有卖出触发」
     # 的日子发出一条空消息，也避免服务端替空仓的人提醒卖出
