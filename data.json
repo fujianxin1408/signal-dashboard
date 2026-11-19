@@ -7,7 +7,7 @@
  },
  "slots": {
   "intraday": {
-   "ts": "11:44",
+   "ts": "12:43",
    "label": "盘中扫描",
    "target": null,
    "skew": null,
@@ -1631,6 +1631,6 @@
    }
   }
  },
- "updated": "2026-11-19 11:44",
+ "updated": "2026-11-19 12:43",
  "updated_slot": "intraday"
 }
