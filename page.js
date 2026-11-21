@@ -46,15 +46,17 @@ function _wilderState(c, n) {
   return [au, ad];
 }
 
-function rsi14(c) {
-  if (c.length < 15) return 50;
-  const s = _wilderState(c, 14);
+function rsiN(c, n) {
+  if (c.length < n + 1) return 50;
+  const s = _wilderState(c, n);
   return s[1] === 0 ? 100 : 100 - 100 / (1 + s[0] / s[1]);
 }
+function rsi14(c) { return rsiN(c, 14); }
 
 // RSI 触发价：假设 5 个交易日匀速走到目标位（单日跳到位不现实，会算出离谱的涨幅）
-function rsiPriceFor(c, target) {
-  const n = 14, days = 5, last = c[c.length - 1];
+function rsiPriceFor(c, target, n) {
+  n = n || 14;                       // 高频档 RSI10 传 10
+  const days = 5, last = c[c.length - 1];
   const st = _wilderState(c, n), au0 = st[0], ad0 = st[1];
   const at = function (p) {
     const step = Math.pow(p / last, 1 / days);
@@ -79,11 +81,12 @@ function rsiPriceFor(c, target) {
 
 // BIAS6 闭式解：P = s5×(1+k)÷(5−k)，s5 为「不含今日」的最近 5 日收盘和
 // 直接用 ma6×(1+k) 会偏高——因为价格下跌本身也会把 MA6 拉低
-function biasPrice(c, k) {
-  if (c.length < 6) return c[c.length - 1];
-  let s5 = 0;
-  for (let i = c.length - 6; i < c.length - 1; i++) s5 += c[i];
-  return s5 * (1 + k / 100) / (5 - k / 100);
+function biasPrice(c, k, n) {
+  n = n || 6;                        // 高频档 BIAS5 传 5
+  if (c.length < n) return c[c.length - 1];
+  let s = 0;
+  for (let i = c.length - n; i < c.length - 1; i++) s += c[i];
+  return s * (1 + k / 100) / (n - 1 - k / 100);
 }
 
 // 明日收盘要站上 MAn 的最低价：明日 MAn=(s(n−1)+C)/n，令 C>MAn 得 C>s(n−1)/(n−1)
@@ -132,10 +135,16 @@ function parseRule(rule) {
     if (!p) return;
     if (p.indexOf('RSI14') === 0) {
       const op = p.indexOf('<') >= 0 ? '<' : '>';
-      out.push(['rsi', op, parseFloat(p.split(op)[1])]);
+      out.push(['rsi', op, parseFloat(p.split(op)[1]), 14]);
+    } else if (p.indexOf('RSI10') === 0) {
+      const op = p.indexOf('<') >= 0 ? '<' : '>';
+      out.push(['rsi', op, parseFloat(p.split(op)[1]), 10]);
     } else if (p.indexOf('BIAS6') === 0) {
       const op = p.indexOf('<') >= 0 ? '<' : '>';
-      out.push(['bias', op, parseFloat(p.split(op)[1].replace('%', '').replace('+', ''))]);
+      out.push(['bias', op, parseFloat(p.split(op)[1].replace('%', '').replace('+', '')), 6]);
+    } else if (p.indexOf('BIAS5') === 0) {
+      const op = p.indexOf('<') >= 0 ? '<' : '>';
+      out.push(['bias', op, parseFloat(p.split(op)[1].replace('%', '').replace('+', '')), 5]);
     } else if (p.indexOf('MA250') === 0) {
       out.push(p.indexOf('升') >= 0
         ? ['ma250up', '>', 0]
@@ -160,12 +169,13 @@ function critWindow(conds, c, ma6) {
   let why = '';
   for (let i = 0; i < conds.length; i++) {
     const k = conds[i];
+    const period = k.length > 3 ? k[3] : (k[0] === 'rsi' ? 14 : 6);
     if (k[0] === 'trail') continue;      // 跟踪止盈没有固定触发价，卖点另算
     let f;
     if (k[0] === 'ma60') f = ma60Floor(c);
     else if (k[0] === 'ma250') f = maFloor(c, 250);
     else if (k[0] === 'ma250up') f = ma250UpFloor(c);
-    else { pts.push(k[0] === 'rsi' ? rsiPriceFor(c, k[2]) : biasPrice(c, k[2])); continue; }
+    else { pts.push(k[0] === 'rsi' ? rsiPriceFor(c, k[2], period) : biasPrice(c, k[2], period)); continue; }
     if (f === null) return [null, null, true, '历史不足'];   // 算不出均线，不给假买点
     // MA250下 / MA60下 用的临界点与「上」是同一个数，但不等号方向相反：
     // 它是价格上界（要跌破它才成立），必须放进 pts；否则会算成夹逼区间、报出假买点。
@@ -220,9 +230,10 @@ function simBuyPrice(conds, c, days) {
   return (lo + hi) / 2;
 }
 
-function hitTest(conds, rsi, bias6, price, ma60, ma250, up250) {
+function hitTest(conds, rsi, bias6, price, ma60, ma250, up250, rsi10, bias5) {
   for (let i = 0; i < conds.length; i++) {
     const ind = conds[i][0], op = conds[i][1], val = conds[i][2];
+    const period = conds[i].length > 3 ? conds[i][3] : (ind === 'rsi' ? 14 : 6);
     let ok;
     if (ind === 'ma60' || ind === 'ma250') {
       const line = ind === 'ma60' ? ma60 : ma250;
@@ -233,7 +244,12 @@ function hitTest(conds, rsi, bias6, price, ma60, ma250, up250) {
       ok = !!up250;
     } else if (ind === 'trail') {
       return false;                      // 由 recalcRow 用持仓峰值单独判断
-    } else { const cur = (ind === 'rsi') ? rsi : bias6; ok = (op === '<') ? cur < val : cur > val; }
+    } else {
+      let cur;
+      if (ind === 'rsi') cur = period === 14 ? rsi : (rsi10 !== undefined && rsi10 !== null ? rsi10 : rsi);
+      else cur = period === 6 ? bias6 : (bias5 !== undefined && bias5 !== null ? bias5 : bias6);
+      ok = (op === '<') ? cur < val : cur > val;
+    }
     if (!ok) return false;
   }
   return true;
@@ -264,6 +280,9 @@ function recalcRow(r, price, mktBull, dayHigh) {
   }
   const rsi = rsi14(h);
   const bias6 = (price / ma6 - 1) * 100;
+  const ma5 = _avg(h.slice(-5));
+  const bias5 = (price / ma5 - 1) * 100;
+  const rsi10 = h.length >= 11 ? rsiN(h, 10) : rsi;
   const bc = parseRule(r.buy_rule), sc = parseRule(r.sell_rule);
   let bw = critWindow(bc, h, ma6);
   const sw = critWindow(sc, h, ma6);
@@ -277,7 +296,7 @@ function recalcRow(r, price, mktBull, dayHigh) {
   }
   const mktReq = (r.bt && r.bt.mkt) || null;
   const blocked = mktReq === 'bear' ? !!mktBull : (!!mktReq && !mktBull);
-  const bHit = hitTest(bc, rsi, bias6, price, sma60, sma250, up250);
+  const bHit = hitTest(bc, rsi, bias6, price, sma60, sma250, up250, rsi10, bias5);
 
   /* 跟踪止盈：卖点 = 持仓期最高价 × (1−N%)，没有固定值。
    * 持仓状态由后端按规则从前跑一遍得出（r.pos）；盘中创了新高就用实时最高价顶上去，
@@ -306,7 +325,7 @@ function recalcRow(r, price, mktBull, dayHigh) {
     ? (price >= sellPx - 1e-9)
     : (r.trail
       ? (!!pos && price <= sellPx + 1e-9)
-      : hitTest(sc, rsi, bias6, price, sma60, sma250, up250));
+      : hitTest(sc, rsi, bias6, price, sma60, sma250, up250, rsi10, bias5));
 
   const o = {};
   for (const k in r) o[k] = r[k];
@@ -314,6 +333,8 @@ function recalcRow(r, price, mktBull, dayHigh) {
   o.price = Number(price.toFixed(dec));
   o.rsi = Number(rsi.toFixed(1));
   o.bias6 = Number(bias6.toFixed(2));
+  o.rsi10 = Number(rsi10.toFixed(1));
+  o.bias5 = Number(bias5.toFixed(2));
   o.ma60 = Number(sma60.toFixed(2));
   o.ma250 = sma250 === null ? null : Number(sma250.toFixed(2));
   o.ma250up = up250;
@@ -403,7 +424,7 @@ function fallbackGap(r) {
 
 // 只有 ETF 才有 3 位小数（最小变动 0.001），普通 A 股一律 2 位。
 // 旧版用「价格 < 10 元」来猜 3 位，会把海澜之家 6.17 显示成 6.170 这类假 3 位。
-const ETF_CODES = { '515080': true };
+const ETF_CODES = { '515080': true, '515080H': true };
 function pdec(r) { return (r && ETF_CODES[r.code]) ? 3 : 2; }
 
 function fmt(n, d) {

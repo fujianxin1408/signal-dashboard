@@ -76,7 +76,23 @@ WATCH = [
      {"n": 17, "win": 94.0, "total": 427, "stop": 10}),
     ("600196", "复星医药", "RSI14<30", "RSI14>60", "sh", {}),
     ("600690", "海尔智家", "RSI14<30 且 BIAS6<-4.0%", "RSI14>60", "sh", {}),
-    ("515080", "中证红利ETF", "RSI14<35 且 BIAS6<-2.0%", "RSI14>65", "sh", {}),
+    # 515080 中证红利ETF：两档高频波段策略（2026-11 定稿，前复权口径）。
+    # 红利ETF 每年分红 3~4 次，除息跳空会被 Wilder RSI/BIAS 误读成超跌买点，
+    # 故两档都走前复权（bt.qfq=True）：前复权末根=实际收盘，买点价可直接照挂。
+    # 数据仅 2019-12 上市起 6.9 年。
+    # 稳健档（主推）：BIAS6<-2% 买 / RSI14>60 卖 / -5%止损。29 笔、胜率 82.8%、
+    # 年化 14.1%、回撤 8.0%、Calmar 1.78、持有 25 天、暴露 30%。加止损反而更优
+    # （ETF 无暴雷风险但会横盘磨损，止损把资金腾给下次超跌）；跟踪止盈过早离场，不采用。
+    # 高频档（虚拟码 515080H + sym=sh515080 共用行情）：BIAS5<-1.2% 买 / RSI10>55 卖 /
+    # -5%止损。61 笔、胜率 80.3%、年化 11.1%、回撤 10.4%、Calmar 1.07、持有 14 天。
+    # 五档起点胜率稳定、逐年 2023 震荡年仅 +1%——单边阴跌年连续小亏是策略特征。
+    # 当前(2026-11-20 现价1.559) BIAS5 -0.71% / RSI14 47.3，两档均空仓等待。
+    ("515080", "中证红利ETF·稳健", "BIAS6<-2.0%", "RSI14>60", "sh",
+     {"n": 29, "win": 82.8, "total": 139.5, "stop": 5, "qfq": True,
+      "years": "2019-12 上市起 6.9 年"}),
+    ("515080H", "中证红利ETF·高频", "BIAS5<-1.2%", "RSI10>55", "sh",
+     {"n": 61, "win": 80.3, "total": 100.1, "stop": 5, "qfq": True,
+      "sym": "sh515080", "years": "2019-12 上市起 6.9 年"}),
     # ——— 以下 8 只为 2026-11 新增，参数由同区间网格回测选定（次日开盘成交）———
     ("600941", "中国移动", "RSI14<50 且 BIAS6<-3.0%", "RSI14>70", "sh",
      {"n": 11, "win": 90.9, "total": 250, "stop": 9, "years": "2022-01 上市起"}),
@@ -277,7 +293,7 @@ WATCH = [
      {"n": 10, "win": 80.0, "total": 97.0, "stop": 0, "qfq": True,
       "years": "2020-02 上市起 6.5 年"}),
 ]
-ETF_CODES = {"515080"}
+ETF_CODES = {"515080", "515080H"}   # 515080H 为高频档策略行，与 515080 共用真实行情
 UA = {
     "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
                    "(KHTML, like Gecko) Chrome/120.0 Safari/537.36"),
@@ -541,12 +557,12 @@ def _wilder_state(closes, n=14):
     return au, ad
 
 
-def rsi_price_for(closes, target, days=5):
-    """求收盘价要走到的位置，使 RSI 刚好等于 target。
+def rsi_price_for(closes, target, days=5, n=14):
+    """求收盘价要走到的位置，使 RSI(n) 刚好等于 target。
     假设价格在 days 个交易日内匀速走到该位置（一天跳到位不现实：
-    RSI 现值 32 时要单日跳到 65 需涨 23%，按 5 日走则只需 16%）。"""
+    RSI 现值 32 时要单日跳到 65 需涨 23%，按 5 日走则只需 16%）。
+    n 默认 14；高频档 RSI10 传 n=10。"""
     c = np.asarray(closes, dtype=float)
-    n = 14
     au0, ad0 = _wilder_state(c, n)
     last = float(c[-1])
     lo, hi = last * 0.55, last * 1.7
@@ -574,15 +590,16 @@ def rsi_price_for(closes, target, days=5):
     return (lo + hi) / 2.0
 
 
-def bias_price(closes, k, ma6=None):
-    """BIAS6 触发价的闭式解：价格下跌本身也会把 MA6 拉低，
-    所以不能直接用 ma6 × (1+k)（那样算出的买点偏高 1% 左右，挂单后其实没触发）。
-      P = s5 × (1+k) ÷ (5 − k)，s5 为不含今日的最近 5 日收盘和。"""
+def bias_price(closes, k, ma6=None, n=6):
+    """BIAS(n) 触发价的闭式解：价格下跌本身也会把 MAn 拉低，
+    所以不能直接用 ma × (1+k)（那样算出的买点偏高，挂单后其实没触发）。
+      P = s(n−1) × (1+k) ÷ (n−1 − k)，s(n−1) 为不含今日的最近 n−1 日收盘和。
+    n 默认 6（即原 BIAS6）；高频档 BIAS5 传 n=5。"""
     c = np.asarray(closes, dtype=float)
-    if len(c) < 6:
+    if len(c) < n:
         return float(ma6) * (1 + k / 100.0) if ma6 else float(c[-1])
-    s5 = float(c[-6:-1].sum())
-    return s5 * (1 + k / 100.0) / (5 - k / 100.0)
+    s = float(c[-n:-1].sum())
+    return s * (1 + k / 100.0) / (n - 1 - k / 100.0)
 
 
 
@@ -597,8 +614,8 @@ def sim_buy_price(conds, closes, days=5):
     c = list(closes)
     if len(c) < 20:
         return None
-    for ind, _op, _val in conds:
-        if ind not in ("rsi", "bias"):
+    for cond in conds:
+        if cond[0] not in ("rsi", "bias"):
             return None
     last = float(c[-1])
     base = c[-400:]
@@ -615,7 +632,8 @@ def sim_buy_price(conds, closes, days=5):
 
     def ok(P):
         rsi, bias = at(P)
-        for ind, op, val in conds:
+        for cond in conds:
+            ind, op, val = cond[0], cond[1], cond[2]
             v = rsi if ind == "rsi" else bias
             if not ((v < val) if op == "<" else (v > val)):
                 return False
@@ -656,11 +674,20 @@ def parse_rule(rule):
             continue
         if part.startswith("RSI14"):
             op = "<" if "<" in part else ">"
-            conds.append(("rsi", op, float(part.split(op, 1)[1])))
+            conds.append(("rsi", op, float(part.split(op, 1)[1]), 14))
+        elif part.startswith("RSI10"):
+            # 高频档专用：短周期 RSI。第 4 位带周期，hit/反解按它取对应指标。
+            op = "<" if "<" in part else ">"
+            conds.append(("rsi", op, float(part.split(op, 1)[1]), 10))
         elif part.startswith("BIAS6"):
             op = "<" if "<" in part else ">"
             conds.append(("bias", op,
-                          float(part.split(op, 1)[1].replace("%", "").replace("+", ""))))
+                          float(part.split(op, 1)[1].replace("%", "").replace("+", "")), 6))
+        elif part.startswith("BIAS5"):
+            # 高频档专用：短周期乖离。第 4 位带周期。
+            op = "<" if "<" in part else ">"
+            conds.append(("bias", op,
+                          float(part.split(op, 1)[1].replace("%", "").replace("+", "")), 5))
         elif part.startswith("MA250"):
             # 年线：上 = 收盘站上年线（解成下界），升 = 年线 20 日斜率向上（也解成下界）
             if "升" in part:
@@ -716,7 +743,9 @@ def critical_window(conds, closes, ma6):
     # 不能拿 conds[0] 判定——年线过滤写在最前面时会把方向判反
     buy_side = any(c[0] in ("rsi", "bias") and c[1] == "<" for c in conds)
     pts, floors = [], []
-    for ind, op, val in conds:
+    for cond in conds:
+        ind, op, val = cond[0], cond[1], cond[2]
+        period = cond[3] if len(cond) > 3 else (14 if ind == "rsi" else 6)
         if ind == "trail":
             continue                  # 跟踪止盈没有固定触发价：卖点由持仓峰值决定
         if ind == "ma60":
@@ -726,10 +755,10 @@ def critical_window(conds, closes, ma6):
         elif ind == "ma250up":
             f = ma250_up_floor(closes)
         elif ind == "rsi":
-            pts.append(rsi_price_for(closes, val))
+            pts.append(rsi_price_for(closes, val, n=period))
             continue
         else:
-            pts.append(bias_price(closes, val, ma6))
+            pts.append(bias_price(closes, val, ma6, n=period))
             continue
         if f is None:                 # 历史不够，算不出这条均线：不给假买点
             return (None, None, True, "历史不足")
@@ -772,7 +801,8 @@ def sell_line_price(conds, closes):
     只在卖侧没有 rsi/bias 固定价时兜底，其余标的仍走 critical_window，结果不变。
     返回 (价格, 均线名)；不适用时返回 (None, None)。"""
     vals, names = [], []
-    for ind, op, _val in conds:
+    for cond in conds:
+        ind, op = cond[0], cond[1]
         if ind == "ma60":
             f = ma_floor(closes, 60)
         elif ind == "ma250":
@@ -794,9 +824,13 @@ def sell_line_price(conds, closes):
     return ((max(ups) if ups else min(dns)), " + ".join(names))
 
 
-def hit(conds, rsi, bias6, price=None, ma60=None, ma250=None, ma250up=None, peak=None):
+def hit(conds, rsi, bias6, price=None, ma60=None, ma250=None, ma250up=None, peak=None,
+        rsi10=None, bias5=None):
+    # rsi/bias6 为 14/6 周期值；高频档用 rsi10/bias5（第4位 period 指定）。
     ok = True
-    for ind, op, val in conds:
+    for cond in conds:
+        ind, op, val = cond[0], cond[1], cond[2]
+        period = cond[3] if len(cond) > 3 else (14 if ind == "rsi" else 6)
         if ind in ("ma60", "ma250"):
             line = ma60 if ind == "ma60" else ma250
             if price is None or line is None:
@@ -815,7 +849,10 @@ def hit(conds, rsi, bias6, price=None, ma60=None, ma250=None, ma250up=None, peak
                 break
             ok = ok and price <= peak * (1 - val / 100.0)
         else:
-            cur = rsi if ind == "rsi" else bias6
+            if ind == "rsi":
+                cur = rsi if period == 14 else (rsi10 if rsi10 is not None else rsi)
+            else:
+                cur = bias6 if period == 6 else (bias5 if bias5 is not None else bias6)
             ok = ok and (cur < val if op == "<" else cur > val)
     return ok
 
@@ -868,7 +905,8 @@ def trail_pos(dly, buy_conds, trail, stop=None):
     bias6 = np.where(np.isnan(ma6), np.nan, (c / ma6 - 1) * 100)
 
     def ok_at(i):
-        for ind, op, val in buy_conds:
+        for cond in buy_conds:
+            ind, op, val = cond[0], cond[1], cond[2]
             if ind == "rsi":
                 v = rsi[i]
             elif ind == "bias":
@@ -981,7 +1019,9 @@ def main():
 
     rows, errors = [], []
     for code, name, buy_rule, sell_rule, mkt, bt in WATCH:
-        sym = mkt + code
+        # 同一标的的多策略行（如 515080H 高频档）用 bt.sym 指定真实抓取代码，
+        # 其余票仍按 mkt+code；这样两条策略行互不冲突、共用一份真实行情。
+        sym = (bt.get("sym") or mkt + code)
         try:
             price, high, low, _prev = quote(sym)
             # 带跟踪止盈的标的要把整段历史跑一遍才能知道「持仓期最高价」，
@@ -1012,6 +1052,10 @@ def main():
                 slope250 = (sma250 / a250 - 1) * 100
             rsi = rsi_wilder(closes)
             bias6 = (price / ma6 - 1) * 100
+            # 高频档专用短周期指标（RSI10/BIAS5）；其余票算出来不用、不影响
+            rsi10 = rsi_wilder(closes, 10)
+            ma5 = float(np.mean(closes[-5:]))
+            bias5 = (price / ma5 - 1) * 100
             bc, sc = parse_rule(buy_rule), parse_rule(sell_rule)
             buy_lo, buy_px, no_win, nowhy = resolve_buy(bc, closes, ma6, bt)
             # 跟踪止盈：卖点不是常数，先模拟出「按规则现在是否持仓、峰值多少」
@@ -1039,9 +1083,10 @@ def main():
                 blocked = not bull            # 要多头却是空头 → 拦
             else:
                 blocked = False
-            buy_hit = hit(bc, rsi, bias6, price, sma60, sma250, up250)
+            buy_hit = hit(bc, rsi, bias6, price, sma60, sma250, up250,
+                          rsi10=rsi10, bias5=bias5)
             sell_hit = hit(sc, rsi, bias6, price, sma60, sma250, up250,
-                           pos["peak"] if pos else None)
+                           pos["peak"] if pos else None, rsi10=rsi10, bias5=bias5)
             if buy_hit:
                 status = "wait" if blocked else "buy"
             elif sell_hit:
@@ -1055,6 +1100,7 @@ def main():
                 "code": code, "name": name, "sym": sym,
                 "price": round(price, 3 if code in ETF_CODES else 2),
                 "rsi": round(rsi, 1), "bias6": round(bias6, 2),
+                "rsi10": round(rsi10, 1), "bias5": round(bias5, 2),
                 "buy": None if buy_px is None else round(buy_px, 3 if code in ETF_CODES else 2),
                 "buy_lo": None if buy_lo is None else round(buy_lo, 3 if code in ETF_CODES else 2),
                 "nowin": bool(no_win), "nowhy": nowhy,
