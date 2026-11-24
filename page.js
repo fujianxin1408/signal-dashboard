@@ -553,10 +553,13 @@ function posCost(code) { var p = POS[code]; return p ? (Number(p.cost) || 0) : 0
  */
 function hasCost(r) { return posCost(r.code) > 0 && Number(r.price) > 0; }
 
-// 空仓的票没有股可卖：后端按规则算出的「卖出」对空仓只是一个已失效的历史信号，
-// 不该在页面上提醒。统一按观察处理——不显示卖出标签、不计入卖出数、不标红。
+// 状态归一口径：
+//  ① 空仓的票没有股可卖：后端按规则算出的「卖出」对空仓只是已失效的历史信号，统一按观察处理。
+//  ② 已持仓（填了成本价）的票：状态显示「持仓」，不再出现「买入」或「等待」；
+//     唯一例外是触发了卖出——这正是持仓最该提醒的信号，必须保留成「卖出」。
 function effStatus(r) {
-  return (!hasCost(r) && r.status === 'sell') ? 'wait' : r.status;
+  if (hasCost(r)) return r.status === 'sell' ? 'sell' : 'held';
+  return r.status === 'sell' ? 'wait' : r.status;
 }
 
 // 风控价：优先用回测硬止损 bt.stop（相对成本）。
@@ -818,8 +821,9 @@ function render() {
 
   const tagOf = r => {
     const st = effStatus(r);
-    if (st === 'buy') return '<span class="tag t-buy">买入</span>';
     if (st === 'sell') return '<span class="tag t-sell">卖出</span>';
+    if (st === 'held') return '<span class="tag t-held">持仓</span>';
+    if (st === 'buy') return '<span class="tag t-buy">买入</span>';
     return '<span class="tag t-wait">等待</span>' +
       (r.blocked ? '<span class="tag t-blk">' + r.blocked + '</span>' : '');
   };
