@@ -614,13 +614,9 @@ function buyCellHtml(r) {
     }
     return fmt(r.buy, pdec(r)) + gapBuyHtml(r);
   }
-  var s = stopInfo(r);
-  if (!s) return '<span class="mini-row"><i class="mini m-stop">止损</i><b>未设</b></span>';
-  var tip = s.breached ? '已跌破' : '再跌 ' + Math.abs(s.dist).toFixed(1) + '%';
-  return '<span class="mini-row"><i class="mini m-stop">' +
-    (s.kind === 'ma60' ? '风控' : '止损') + '</i><b class="' +
-    (s.breached ? 'k-breach' : '') + '">' + fmt(s.px, pdec(r)) + '</b></span>' +
-    '<i class="gap ' + (s.breached ? 'pos' : 'near') + '">' + tip + '</i>';
+  // 持仓时止损价已在下方信息条（posInner 的放大 k-stop 色块）显示，
+  // 第 5 列不再重复提示，留一个占位「—」即可，避免一行出现两处止损。
+  return '<span class="dim">—</span>';
 }
 
 // 卖点列：持仓时加「卖出」标签并加粗，未持仓保持原样
