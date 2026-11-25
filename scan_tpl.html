@@ -22,10 +22,11 @@ h1{font-size:18px;font-weight:600}
 .tier .l{font-size:12px;color:#8a8f98;margin-top:2px}
 .tier.a .n{color:#c0392b}.tier.b .n{color:#d98324}.tier.c .n{color:#2c7fb8}
 .key{background:#fff4e0;border:1px solid #f0d9a0;border-radius:9px;padding:11px 15px;font-size:13px;color:#7a5b12;margin:10px 0}
-.card{background:#fff;border-radius:12px;box-shadow:0 1px 3px rgba(0,0,0,.05);overflow:hidden;margin-bottom:14px}
-.bar{padding:10px 14px;background:#fcfcfd;border-bottom:1px solid #f0f0f2;font-size:14px;font-weight:600}
+.card{background:#fff;border-radius:12px;box-shadow:0 1px 3px rgba(0,0,0,.05);margin-bottom:14px}
+.bar{padding:10px 14px;background:#fcfcfd;border-bottom:1px solid #f0f0f2;font-size:14px;font-weight:600;border-radius:12px 12px 0 0}
 .bar .d{font-weight:400;color:#9a9ea6;font-size:12px;margin-left:8px}
-table{width:100%;border-collapse:collapse;font-size:14px}
+.tw{overflow-x:auto;-webkit-overflow-scrolling:touch}
+table{width:100%;border-collapse:collapse;font-size:14px;min-width:340px}
 th{background:#fafafb;color:#7d828b;font-weight:500;text-align:right;padding:8px 10px;font-size:12.5px;position:sticky;top:0;white-space:nowrap}
 th:first-child,th:nth-child(2){text-align:left}
 td{padding:9px 10px;border-top:1px solid #f2f2f4;text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
@@ -46,8 +47,11 @@ details.info summary{cursor:pointer;color:#8a8f98}
 details.info p{margin-top:8px;line-height:1.8}
 @media(max-width:640px){
   body{padding:10px 9px 18px}
-  th,td{padding:7px 6px;font-size:12.5px}
-  .code{display:block;margin-left:0}
+  th,td{padding:7px 4px;font-size:12px}
+  table{min-width:0}
+  .code{display:block;margin-left:0;font-size:11px}
+  .nm{font-size:12px}
+  .tag{width:7px;height:7px;padding:0;overflow:hidden;text-indent:-999px;vertical-align:middle;margin-left:3px;border-radius:50%}
   h1{font-size:16px}
 }
 </style>
@@ -96,9 +100,9 @@ const T=(r)=>{
 };
 const table=(rows)=>{
   if(!rows.length) return '<div class="empty">今日无符合该条件的标的</div>';
-  return `<table><thead><tr>
+  return `<div class="tw"><table><thead><tr>
     <th>代码</th><th>名称</th><th>收盘价</th><th>当日</th><th>市盈率</th><th>股息率</th>
-  </tr></thead><tbody>${rows.map(T).join('')}</tbody></table>`;
+  </tr></thead><tbody>${rows.map(T).join('')}</tbody></table></div>`;
 };
 function render(){
   const core=(D.results||[]).filter(r=>r.core);
