@@ -1,3 +1,5 @@
 .gh_repo
 *.pyc
 __pycache__/
+.scan_cache/
+.scan_codes.json

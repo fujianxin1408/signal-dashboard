@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>急跌稳股 · 每日筛选</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;background:#f4f5f7;color:#1a1a1a;padding:14px 16px 24px;line-height:1.5}
+.wrap{max-width:1000px;margin:0 auto}
+.head{background:#fff;border-radius:12px;padding:14px 18px 12px;margin-bottom:10px;box-shadow:0 1px 3px rgba(0,0,0,.05)}
+.h1row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+h1{font-size:18px;font-weight:600}
+.back{display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border-radius:6px;background:#f0f2f5;color:#555;text-decoration:none;font-size:13px}
+.back:hover{background:#e6e8ec}
+.datebadge{font-size:12.5px;color:#8a8f98;font-variant-numeric:tabular-nums;margin-left:auto}
+.sub{font-size:12.5px;color:#9a9ea6;margin-top:7px}
+.tiers{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+.tier{flex:1 1 150px;background:#f8f9fb;border:1px solid #eceef1;border-radius:9px;padding:10px 14px}
+.tier .n{font-size:22px;font-weight:700;font-variant-numeric:tabular-nums}
+.tier .l{font-size:12px;color:#8a8f98;margin-top:2px}
+.tier.a .n{color:#c0392b}.tier.b .n{color:#d98324}.tier.c .n{color:#2c7fb8}
+.key{background:#fff4e0;border:1px solid #f0d9a0;border-radius:9px;padding:11px 15px;font-size:13px;color:#7a5b12;margin:10px 0}
+.card{background:#fff;border-radius:12px;box-shadow:0 1px 3px rgba(0,0,0,.05);overflow:hidden;margin-bottom:14px}
+.bar{padding:10px 14px;background:#fcfcfd;border-bottom:1px solid #f0f0f2;font-size:14px;font-weight:600}
+.bar .d{font-weight:400;color:#9a9ea6;font-size:12px;margin-left:8px}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th{background:#fafafb;color:#7d828b;font-weight:500;text-align:right;padding:8px 10px;font-size:12.5px;position:sticky;top:0;white-space:nowrap}
+th:first-child,th:nth-child(2){text-align:left}
+td{padding:9px 10px;border-top:1px solid #f2f2f4;text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+td:first-child,td:nth-child(2){text-align:left}
+tr:hover td{background:#fafbfd}
+.code{color:#b0b3ba;font-size:11.5px;margin-left:5px}
+.nm{font-weight:500}
+.dn{color:#0a8f4d;font-weight:600}.up{color:#c0392b;font-weight:600}
+.mini{font-size:11.5px;color:#b0b3ba}
+.tag{display:inline-block;padding:1px 7px;border-radius:4px;font-size:11px;background:#fde8e8;color:#c0392b;margin-left:4px}
+.tag.v{background:#fff0e0;color:#b26a00}
+.empty{padding:26px;text-align:center;color:#b0b3ba;font-size:13px}
+.foot{text-align:center;font-size:12px;color:#b0b3ba;padding:16px 0 4px}
+details.info{margin-top:10px;background:#fff;border-radius:10px;padding:10px 15px;font-size:12.5px;color:#777}
+details.info summary{cursor:pointer;color:#8a8f98}
+details.info p{margin-top:8px;line-height:1.8}
+@media(max-width:640px){
+  body{padding:10px 9px 18px}
+  th,td{padding:7px 6px;font-size:12.5px}
+  .code{display:block;margin-left:0}
+  h1{font-size:16px}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="head">
+    <div class="h1row">
+      <a class="back" href="index.html">← 自选信号</a>
+      <h1>急跌稳股 · 每日筛选</h1>
+      <span class="datebadge" id="date">—</span>
+    </div>
+    <div class="sub" id="sub">—</div>
+    <div class="tiers" id="tiers"></div>
+  </div>
+
+  <div class="key" id="key">—</div>
+
+  <div id="list"></div>
+
+  <details class="info">
+    <summary>筛选逻辑与卖出规则（点开）</summary>
+    <p>
+    <b>急跌前提</b>：当日跌幅≤−3% 或 3 日累计≤−8%。<b>核心信号</b>：BIAS6≤−8% 且 RSI14≤25（20 日胜率约 68%）。<br>
+    <b>精筛</b>：核心 + KDJ J&lt;0 + 放量&gt;1.5 倍（回测 20 日胜率 77%）；<b>次精筛</b>：核心 + J&lt;0（均收益最高 +9.91%）。<br>
+    <b>买入</b>：信号当日收盘成立，次日开盘按触发价挂单。<b>卖出二选一</b>：① 收盘站上 MA20 次日开盘卖（胜率 71%）；② 持有 20~25 日收盘卖（均收益 +6.2%）。<b>止损 −10%</b> 盘中跌破即走，优先于卖点。别等 RSI 回 70（85% 等不到）。<br>
+    <b>数据</b>：腾讯行情快照 + 前复权日线（避免除权跳空假信号）。<b>注意</b>：这是统计概率，不是买入建议；分批建仓、严格止损，基本面恶化型下跌不适用。
+    </p>
+  </details>
+  <div class="foot">信号为收盘价计算的技术指标触发，仅供参考，不构成投资建议</div>
+</div>
+<script>
+const D = __SCAN_DATA__;
+const f=(x,n=1)=> (x==null?'—':Number(x).toFixed(n));
+const T=(r)=>{
+  const chg = r.chg<0?'dn':'up';
+  const tags = (r.core?'<span class="tag">核心</span>':'')+(r.add_J?'<span class="tag v">J&lt;0</span>':'')+(r.add_vol?'<span class="tag v">放量</span>':'');
+  return `<tr>
+    <td class="code">${r.code}</td><td class="nm">${r.name}${tags}</td>
+    <td>${f(r.price,2)}</td><td class="${chg}">${r.chg>0?'+':''}${f(r.chg)}%</td>
+    <td>${f(r.bias6)}</td><td>${f(r.rsi14)}</td><td>${f(r.j)}</td>
+    <td>${f(r.vr)}</td><td>${r.turn==null?'—':f(r.turn,2)}</td>
+  </tr>`;
+};
+const table=(rows)=>{
+  if(!rows.length) return '<div class="empty">今日无符合该条件的标的</div>';
+  return `<table><thead><tr>
+    <th>代码</th><th>名称</th><th>收盘价</th><th>当日</th><th>BIAS6</th><th>RSI14</th><th>KDJ-J</th><th>量比</th><th>换手%</th>
+  </tr></thead><tbody>${rows.map(T).join('')}</tbody></table>`;
+};
+function render(){
+  const core=(D.results||[]).filter(r=>r.core);
+  const fine=core.filter(r=>r.add_J&&r.add_vol);
+  const mid=core.filter(r=>r.add_J&&!(r.add_J&&r.add_vol));
+  document.getElementById('date').textContent=D.date||'—';
+  document.getElementById('sub').textContent=`全市场 ${D.total_scanned||0} 只扫描 · ${D.candidates||0} 只当日跌超 2.5% 候选 · 前复权口径`;
+  document.getElementById('tiers').innerHTML=`
+    <div class="tier a"><div class="n">${fine.length}</div><div class="l">精筛 · J&lt;0+放量（胜率77%）</div></div>
+    <div class="tier b"><div class="n">${mid.length}</div><div class="l">次精筛 · J&lt;0（均收益最高）</div></div>
+    <div class="tier c"><div class="n">${core.length}</div><div class="l">核心 · 双超卖（胜率68%）</div></div>`;
+  document.getElementById('key').innerHTML=`<b>今日结果</b>：符合核心双超卖 <b>${core.length}</b> 只，叠加 J&lt;0 剩 <b>${fine.length+mid.length}</b> 只，三重共振精筛 <b>${fine.length}</b> 只。这只是统计概率清单，分批建仓 + −10% 止损。`;
+  const list=document.getElementById('list');
+  list.innerHTML=`
+    <div class="card"><div class="bar">① 精筛：核心 + J&lt;0 + 放量<span class="d">三重共振，历史胜率最高</span></div>${table(fine)}</div>
+    <div class="card"><div class="bar">② 次精筛：核心 + J&lt;0<span class="d">未要求放量</span></div>${table(mid)}</div>
+    <div class="card"><div class="bar">③ 全部核心信号<span class="d">按 BIAS6 由深到浅</span></div>${table(core)}</div>`;
+}
+render();
+</script>
+</body>
+</html>

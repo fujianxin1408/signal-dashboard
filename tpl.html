@@ -10,6 +10,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei
 .wrap{max-width:1180px;margin:0 auto}
 
 /* ---------- 页头 ---------- */
+.scanlink{display:inline-block;padding:3px 10px;border-radius:6px;background:#fff4e0;color:#b26a00;text-decoration:none;font-size:12.5px;border:1px solid #f0d9a0;white-space:nowrap}
+.scanlink:hover{background:#ffe9c4}
 .head{background:#fff;border-radius:12px;padding:14px 18px 12px;margin-bottom:10px;box-shadow:0 1px 3px rgba(0,0,0,.05)}
 .h1row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 h1{font-size:18px;font-weight:600;letter-spacing:.4px}
@@ -163,6 +165,7 @@ details.legend[open] summary::before{content:'▾ '}
   <div class="head">
     <div class="h1row">
       <h1>自选信号</h1>
+      <a class="scanlink" href="scan.html" title="每日急跌稳股筛选">急跌稳股筛选 ›</a>
       <span id="mktBadge"></span>
       <span id="autoBtn" class="auto"></span>
     </div>
