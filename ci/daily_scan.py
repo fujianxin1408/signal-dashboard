@@ -5,6 +5,17 @@ import pandas as pd, numpy as np
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import akshare as ak
 warnings.filterwarnings('ignore')
+
+def _ak(name, *a, **kw):
+    """兼容 akshare 新旧版本接口改名"""
+    fn = getattr(ak, name, None)
+    if fn is None:
+        alias = {'stock_zh_a_spot':'stock_zh_a_spot_sina',
+                 'stock_zh_a_daily':'stock_zh_a_daily'}.get(name)
+        fn = getattr(ak, alias, None)
+    if fn is None:
+        raise AttributeError('akshare 无接口: '+name)
+    return fn(*a, **kw)
 import os
 ROOT=os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BASE=ROOT
@@ -41,7 +52,7 @@ def fetch_snap(codes):
 def all_codes():
     f=os.path.join(ROOT,'.scan_codes.json')
     if os.path.exists(f): return json.load(open(f))
-    df=ak.stock_zh_a_spot()
+    df=_ak("stock_zh_a_spot")
     codes=[re.sub(r'[^0-9]','',str(c))[-6:] for c in df['代码'].tolist()]
     json.dump(codes,open(f,'w')); return codes
 
@@ -65,7 +76,7 @@ def get_hist(code):
         try: return pd.read_pickle(f)
         except: pass
     try:
-        df=ak.stock_zh_a_daily(symbol=sym(code),adjust='qfq')
+        df=_ak("stock_zh_a_daily",symbol=sym(code),adjust="qfq")
         if df is None or len(df)<300: return None
         df.to_pickle(f); return df
     except: return None
