@@ -33,6 +33,8 @@ tr:hover td{background:#fafbfd}
 .code{color:#b0b3ba;font-size:11.5px;margin-left:5px}
 .nm{font-weight:500}
 .dn{color:#0a8f4d;font-weight:600}.up{color:#c0392b;font-weight:600}
+.loss{color:#9a9ea6}
+.dv{color:#c0392b;font-weight:600}
 .mini{font-size:11.5px;color:#b0b3ba}
 .tag{display:inline-block;padding:1px 7px;border-radius:4px;font-size:11px;background:#fde8e8;color:#c0392b;margin-left:4px}
 .tag.v{background:#fff0e0;color:#b26a00}
@@ -71,7 +73,8 @@ details.info p{margin-top:8px;line-height:1.8}
     <b>急跌前提</b>：当日跌幅≤−3% 或 3 日累计≤−8%。<b>核心信号</b>：BIAS6≤−8% 且 RSI14≤25（20 日胜率约 68%）。<br>
     <b>精筛</b>：核心 + KDJ J&lt;0 + 放量&gt;1.5 倍（回测 20 日胜率 77%）；<b>次精筛</b>：核心 + J&lt;0（均收益最高 +9.91%）。<br>
     <b>买入</b>：信号当日收盘成立，次日开盘按触发价挂单。<b>卖出二选一</b>：① 收盘站上 MA20 次日开盘卖（胜率 71%）；② 持有 20~25 日收盘卖（均收益 +6.2%）。<b>止损 −10%</b> 盘中跌破即走，优先于卖点。别等 RSI 回 70（85% 等不到）。<br>
-    <b>数据</b>：腾讯行情快照 + 前复权日线（避免除权跳空假信号）。<b>注意</b>：这是统计概率，不是买入建议；分批建仓、严格止损，基本面恶化型下跌不适用。
+    <b>数据</b>：腾讯行情快照 + 前复权日线（避免除权跳空假信号）。<b>市盈率</b>为滚动PE(TTM)，负数显示"亏损"；<b>股息率</b>＝近12个月每股派息÷现价（税前，未分红显示"—"），数值越高越偏红利型。<br>
+    <b>注意</b>：这是统计概率，不是买入建议；分批建仓、严格止损，基本面恶化型下跌不适用。BIAS6/RSI14/J值/量比/换手率等筛选指标已从名单中隐藏，仅保留在后台数据中用于分层。
     </p>
   </details>
   <div class="foot">信号为收盘价计算的技术指标触发，仅供参考，不构成投资建议</div>
@@ -79,20 +82,21 @@ details.info p{margin-top:8px;line-height:1.8}
 <script>
 const D = __SCAN_DATA__;
 const f=(x,n=1)=> (x==null?'—':Number(x).toFixed(n));
+const peTxt=(v)=> (v==null?'—':(v<0?'亏损':Number(v).toFixed(1)));
+const dvTxt=(v)=> (v==null?'—':(v>0?'<span class="dv">'+Number(v).toFixed(2)+'%</span>':'—'));
 const T=(r)=>{
   const chg = r.chg<0?'dn':'up';
   const tags = (r.core?'<span class="tag">核心</span>':'')+(r.add_J?'<span class="tag v">J&lt;0</span>':'')+(r.add_vol?'<span class="tag v">放量</span>':'');
   return `<tr>
     <td class="code">${r.code}</td><td class="nm">${r.name}${tags}</td>
     <td>${f(r.price,2)}</td><td class="${chg}">${r.chg>0?'+':''}${f(r.chg)}%</td>
-    <td>${f(r.bias6)}</td><td>${f(r.rsi14)}</td><td>${f(r.j)}</td>
-    <td>${f(r.vr)}</td><td>${r.turn==null?'—':f(r.turn,2)}</td>
+    <td class="${r.pe!=null&&r.pe<0?'loss':''}">${peTxt(r.pe)}</td><td>${dvTxt(r.dv)}</td>
   </tr>`;
 };
 const table=(rows)=>{
   if(!rows.length) return '<div class="empty">今日无符合该条件的标的</div>';
   return `<table><thead><tr>
-    <th>代码</th><th>名称</th><th>收盘价</th><th>当日</th><th>BIAS6</th><th>RSI14</th><th>KDJ-J</th><th>量比</th><th>换手%</th>
+    <th>代码</th><th>名称</th><th>收盘价</th><th>当日</th><th>市盈率</th><th>股息率</th>
   </tr></thead><tbody>${rows.map(T).join('')}</tbody></table>`;
 };
 function render(){

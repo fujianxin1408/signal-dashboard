@@ -43,7 +43,9 @@ def fetch_snap(codes):
                 try: price=float(f[3]); chg=float(f[32]); name=f[1]
                 except: continue
                 if price<=0: continue
-                out[code]=dict(name=name,price=price,chg=chg)
+                try: pe=float(f[39])   # 滚动市盈率(TTM)
+                except: pe=None
+                out[code]=dict(name=name,price=price,chg=chg,pe=pe)
         except Exception as e:
             pass
     return out
@@ -121,12 +123,32 @@ for code,df in hists.items():
     near = (b6<=-6 and r14<=30) or (b6<=-8) or (r14<=25)  # 接近
     if not (core or near): continue
     results.append(dict(code=code,name=snap[code]['name'],price=snap[code]['price'],chg=snap[code]['chg'],
+        pe=snap[code].get('pe'),
         bias6=round(b6,2),rsi14=round(r14,1),rsi6=round(r6,1),j=round(j,1),
         bias20=round(d['bias20'][i],2),dev60=round(d['dev60'][i],2),
         ret=round(d['ret'][i],2),cum3=round(d['cum3'][i],2),
         vr=round(d['vr'][i],2),turn=round(d['turn'][i],2) if not np.isnan(d['turn'][i]) else None,
         core=bool(core),
         add_J=bool(j<0), add_vol=bool(d['vr'][i]>1.5), add_lowopen=bool(snap[code]['chg']<=-5)))
+
+# 3.5 补充股息率：近12个月每股派息 / 现价（腾讯快照无股息率字段，理杏仁接口已失效）
+import datetime as _dt
+_todayDate=_dt.date.today()
+_cutoff=(_todayDate-_dt.timedelta(days=365)).isoformat()
+def _divyield(r):
+    try:
+        df=_ak("stock_history_dividend_detail",symbol=r['code'],indicator="分红")
+        if df is None or len(df)==0: return None
+        ex=df['除权除息日'].astype(str)
+        recent=df[(ex>=_cutoff)&(df['进度']=='实施')]
+        cash=float(recent['派息'].sum())     # 每10股派息(元)
+        return round(cash/10.0/r['price']*100,2) if r['price']>0 else None
+    except: return None
+with ThreadPoolExecutor(max_workers=12) as ex:
+    fu_map={ex.submit(_divyield,r):r for r in results}
+    for fu in as_completed(fu_map):
+        fu_map[fu]['dv']=fu.result()
+print('股息率补充完成',sum(1 for r in results if r.get('dv') is not None))
 
 results.sort(key=lambda x:(not x['core'], x['bias6']))
 import datetime as _dt
