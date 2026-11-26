@@ -52,8 +52,18 @@ def fetch_snap(codes):
 
 # 全A代码列表（用之前的新浪spot缓存代码，或akshare）
 def all_codes():
+    # 优先用仓库内置的代码种子文件（稳定，不依赖任何外部接口）
+    seed=os.path.join(ROOT,'codes_seed.json')
+    if os.path.exists(seed):
+        try:
+            codes=json.load(open(seed))
+            if len(codes)>4000: return codes
+        except: pass
     f=os.path.join(ROOT,'.scan_codes.json')
-    if os.path.exists(f): return json.load(open(f))
+    if os.path.exists(f):
+        try: return json.load(open(f))
+        except: pass
+    # 兜底：尝试网络拉取（失败也不致命，可稍后更新种子文件）
     df=_ak("stock_zh_a_spot")
     codes=[re.sub(r'[^0-9]','',str(c))[-6:] for c in df['代码'].tolist()]
     json.dump(codes,open(f,'w')); return codes
@@ -77,11 +87,15 @@ def get_hist(code):
     if os.path.exists(f):
         try: return pd.read_pickle(f)
         except: pass
-    try:
-        df=_ak("stock_zh_a_daily",symbol=sym(code),adjust="qfq")
-        if df is None or len(df)<300: return None
-        df.to_pickle(f); return df
-    except: return None
+    import time as _t
+    for attempt in range(3):   # 新浪接口偶发 ConnectionReset，重试
+        try:
+            df=_ak("stock_zh_a_daily",symbol=sym(code),adjust="qfq")
+            if df is not None and len(df)>=300:
+                df.to_pickle(f); return df
+        except: pass
+        _t.sleep(0.6*(attempt+1))
+    return None
 
 t=time.time()
 hists={}
